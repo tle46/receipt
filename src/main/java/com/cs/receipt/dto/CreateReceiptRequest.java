@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Pattern;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -31,6 +32,14 @@ public class CreateReceiptRequest {
     @NotNull(message = "Fee is required")
     @DecimalMin(value = "0.00", message = "Fee cannot be negative")
     private BigDecimal fee;
+
+    @NotNull(message = "Tip is required")
+    @DecimalMin(value = "0.00", message = "Tip cannot be negative")
+    private BigDecimal tip;
+
+    @NotNull(message = "Currency is required")
+    @Pattern(regexp = "^[A-Z]{3}$", message = "Currency must be a 3-letter ISO code")
+    private String currency;
 
     @NotNull(message = "Total is required")
     @DecimalMin(value = "0.00", message = "Total cannot be negative")
@@ -91,6 +100,14 @@ public class CreateReceiptRequest {
     public void setFee(BigDecimal fee) {
         this.fee = fee;
     }
+
+    public BigDecimal getTip() { return tip; }
+
+    public void setTip(BigDecimal tip) { this.tip = tip; }
+
+    public String getCurrency() { return currency; }
+
+    public void setCurrency(String currency) { this.currency = currency; }
 
     public BigDecimal getTotal() {
         return total;

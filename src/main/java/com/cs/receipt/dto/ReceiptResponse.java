@@ -15,7 +15,10 @@ public class ReceiptResponse {
     private BigDecimal discount;
     private BigDecimal tax;
     private BigDecimal fee;
+    private BigDecimal tip;
     private BigDecimal total;
+    private String currency;
+    private String status;
     private Long ownerId;
     private List<ReceiptItemResponse> items;
 
@@ -30,7 +33,10 @@ public class ReceiptResponse {
             BigDecimal discount,
             BigDecimal tax,
             BigDecimal fee,
+            BigDecimal tip,
             BigDecimal total,
+            String currency,
+            String status,
             Long ownerId,
             List<ReceiptItemResponse> items) {
 
@@ -41,7 +47,10 @@ public class ReceiptResponse {
         this.discount = discount;
         this.tax = tax;
         this.fee = fee;
+        this.tip = tip;
         this.total = total;
+        this.currency = currency;
+        this.status = status;
         this.ownerId = ownerId;
         this.items = items;
     }
@@ -74,9 +83,15 @@ public class ReceiptResponse {
         return fee;
     }
 
+    public BigDecimal getTip() { return tip; }
+
     public BigDecimal getTotal() {
         return total;
     }
+
+    public String getCurrency() { return currency; }
+
+    public String getStatus() { return status; }
 
     public Long getOwnerId() {
         return ownerId;
@@ -153,7 +168,10 @@ public class ReceiptResponse {
                 receipt.getDiscount(),
                 receipt.getTax(),
                 receipt.getFee(),
+                receipt.getTip(),
                 receipt.getTotal(),
+                receipt.getCurrency(),
+                receipt.getStatus().name(),
                 receipt.getOwner().getId(),
                 items
         );

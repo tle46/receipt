@@ -1,6 +1,8 @@
 package com.cs.receipt.model;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 import jakarta.persistence.*;
 
@@ -16,13 +18,18 @@ public class ReceiptItem {
 
     private BigDecimal quantity;
 
+    @Column(precision = 19, scale = 2, nullable = false)
     private BigDecimal unitPrice;
 
+    @Column(precision = 19, scale = 2, nullable = false)
     private BigDecimal total;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "receipt_id")
     private Receipt receipt;
+
+    @OneToMany(mappedBy = "receiptItem", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ReceiptItemAllocation> allocations = new ArrayList<>();
 
     public ReceiptItem() {
     }
@@ -74,4 +81,6 @@ public class ReceiptItem {
     public void setReceipt(Receipt receipt) {
         this.receipt = receipt;
     }
+
+    public List<ReceiptItemAllocation> getAllocations() { return allocations; }
 }

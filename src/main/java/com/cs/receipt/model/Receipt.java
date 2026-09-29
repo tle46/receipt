@@ -18,15 +18,30 @@ public class Receipt {
 
     private LocalDateTime purchaseDate;
 
+    @Column(precision = 19, scale = 2, nullable = false)
     private BigDecimal subtotal;
 
+    @Column(precision = 19, scale = 2, nullable = false)
     private BigDecimal discount;
 
+    @Column(precision = 19, scale = 2, nullable = false)
     private BigDecimal tax;
 
+    @Column(precision = 19, scale = 2, nullable = false)
     private BigDecimal fee;
 
+    @Column(precision = 19, scale = 2, nullable = false)
+    private BigDecimal tip = BigDecimal.ZERO;
+
+    @Column(precision = 19, scale = 2, nullable = false)
     private BigDecimal total;
+
+    @Column(nullable = false, length = 3)
+    private String currency = "USD";
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private ReceiptStatus status = ReceiptStatus.DRAFT;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id", nullable = false)
@@ -38,6 +53,9 @@ public class Receipt {
         orphanRemoval = true
     )
     private List<ReceiptItem> items = new ArrayList<>();
+
+    @OneToMany(mappedBy = "receipt", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ReceiptParticipant> participants = new ArrayList<>();
 
     public Receipt() {
     }
@@ -98,6 +116,10 @@ public class Receipt {
         this.fee = fee;
     }
 
+    public BigDecimal getTip() { return tip; }
+
+    public void setTip(BigDecimal tip) { this.tip = tip; }
+
     public BigDecimal getTotal() {
         return total;
     }
@@ -105,6 +127,14 @@ public class Receipt {
     public void setTotal(BigDecimal total) {
         this.total = total;
     }
+
+    public String getCurrency() { return currency; }
+
+    public void setCurrency(String currency) { this.currency = currency; }
+
+    public ReceiptStatus getStatus() { return status; }
+
+    public void setStatus(ReceiptStatus status) { this.status = status; }
 
     public User getOwner() {
         return owner;
@@ -121,4 +151,6 @@ public class Receipt {
     public void setItems(List<ReceiptItem> items) {
         this.items = items;
     }
+
+    public List<ReceiptParticipant> getParticipants() { return participants; }
 }
