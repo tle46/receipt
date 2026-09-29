@@ -2,10 +2,16 @@ package com.cs.receipt.service;
 
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
+import com.cs.receipt.model.ReceiptParticipant;
+import com.cs.receipt.model.ReceiptItemAllocation;
+import com.cs.receipt.model.AllocationType;
 import com.cs.receipt.model.User;
 import com.cs.receipt.repository.ReceiptRepository;
+import com.cs.receipt.repository.ReceiptParticipantRepository;
+import com.cs.receipt.repository.ReceiptItemAllocationRepository;
 import com.cs.receipt.repository.UserRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -15,13 +21,19 @@ public class ReceiptService {
 
     private final ReceiptRepository receiptRepository;
     private final UserRepository userRepository;
+    private final ReceiptParticipantRepository receiptParticipantRepository;
+    private final ReceiptItemAllocationRepository receiptItemAllocationRepository;
 
     public ReceiptService(
             ReceiptRepository receiptRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            ReceiptParticipantRepository receiptParticipantRepository,
+            ReceiptItemAllocationRepository receiptItemAllocationRepository) {
 
         this.receiptRepository = receiptRepository;
         this.userRepository = userRepository;
+        this.receiptParticipantRepository = receiptParticipantRepository;
+        this.receiptItemAllocationRepository = receiptItemAllocationRepository;
     }
 
     public Receipt createReceipt(Long userId, Receipt receipt) {
@@ -31,6 +43,11 @@ public class ReceiptService {
                         new IllegalArgumentException("User not found"));
 
         receipt.setOwner(owner);
+
+        ReceiptParticipant ownerParticipant = new ReceiptParticipant();
+        ownerParticipant.setReceipt(receipt);
+        ownerParticipant.setUser(owner);
+        receipt.getParticipants().add(ownerParticipant);
 
         BigDecimal calculatedSubtotal = BigDecimal.ZERO;
 
@@ -78,15 +95,21 @@ public class ReceiptService {
                 ? receipt.getFee()
                 : BigDecimal.ZERO;
 
+        BigDecimal tip = receipt.getTip() != null
+                ? receipt.getTip()
+                : BigDecimal.ZERO;
+
         BigDecimal calculatedTotal = calculatedSubtotal
                 .subtract(discount)
                 .add(tax)
                 .add(fee)
+                .add(tip)
                 .setScale(2, RoundingMode.HALF_UP);
 
         receipt.setDiscount(discount.setScale(2, RoundingMode.HALF_UP));
         receipt.setTax(tax.setScale(2, RoundingMode.HALF_UP));
         receipt.setFee(fee.setScale(2, RoundingMode.HALF_UP));
+        receipt.setTip(tip.setScale(2, RoundingMode.HALF_UP));
 
         BigDecimal providedTotal = receipt.getTotal()
                 .setScale(2, RoundingMode.HALF_UP);
@@ -97,12 +120,75 @@ public class ReceiptService {
 
         if (totalDifference.compareTo(new BigDecimal("0.01")) > 0) {
             throw new IllegalArgumentException(
-                    "Receipt total does not match subtotal - discount + tax + fee"
+                    "Receipt total does not match subtotal - discount + tax + fee + tip"
             );
         }
 
         receipt.setTotal(calculatedTotal);
 
         return receiptRepository.save(receipt);
+    }
+
+    @Transactional
+    public ReceiptParticipant addParticipant(Long receiptId, Long ownerId, Long participantUserId) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        User participantUser = userRepository.findById(participantUserId)
+                .orElseThrow(() -> new IllegalArgumentException("Participant user not found"));
+
+        boolean alreadyAdded = receipt.getParticipants().stream()
+                .anyMatch(participant -> participant.getUser().getId().equals(participantUserId));
+        if (alreadyAdded) {
+            throw new IllegalArgumentException("User is already a receipt participant");
+        }
+
+        ReceiptParticipant participant = new ReceiptParticipant();
+        participant.setReceipt(receipt);
+        participant.setUser(participantUser);
+        receipt.getParticipants().add(participant);
+        return receiptParticipantRepository.saveAndFlush(participant);
+    }
+
+    @Transactional
+    public ReceiptItemAllocation addItemAllocation(Long receiptId, Long itemId, Long ownerId,
+                                                    Long participantId, AllocationType type,
+                                                    BigDecimal inputValue) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        ReceiptItem item = receipt.getItems().stream()
+                .filter(candidate -> candidate.getId().equals(itemId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Receipt item not found"));
+        ReceiptParticipant participant = receipt.getParticipants().stream()
+                .filter(candidate -> candidate.getId().equals(participantId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Receipt participant not found"));
+
+        if (type == AllocationType.EXACT && inputValue.compareTo(item.getTotal()) > 0) {
+            throw new IllegalArgumentException("Exact allocation cannot exceed the item total");
+        }
+        boolean alreadyAllocated = item.getAllocations().stream()
+                .anyMatch(allocation -> allocation.getParticipant().getId().equals(participantId));
+        if (alreadyAllocated) {
+            throw new IllegalArgumentException("Participant already has an allocation for this item");
+        }
+
+        ReceiptItemAllocation allocation = new ReceiptItemAllocation();
+        allocation.setReceiptItem(item);
+        allocation.setParticipant(participant);
+        allocation.setAllocationType(type);
+        allocation.setInputValue(inputValue);
+        item.getAllocations().add(allocation);
+        return receiptItemAllocationRepository.saveAndFlush(allocation);
+    }
+
+    private Receipt findOwnedDraft(Long receiptId, Long ownerId) {
+        Receipt receipt = receiptRepository.findById(receiptId)
+                .orElseThrow(() -> new IllegalArgumentException("Receipt not found"));
+        if (!receipt.getOwner().getId().equals(ownerId)) {
+            throw new IllegalArgumentException("Only the receipt owner can modify it");
+        }
+        if (receipt.getStatus() != com.cs.receipt.model.ReceiptStatus.DRAFT) {
+            throw new IllegalArgumentException("Only draft receipts can be modified");
+        }
+        return receipt;
     }
 }
