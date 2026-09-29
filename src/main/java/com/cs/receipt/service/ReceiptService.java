@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Objects;
 
 @Service
 public class ReceiptService {
@@ -162,13 +163,31 @@ public class ReceiptService {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Receipt participant not found"));
 
-        if (type == AllocationType.EXACT && inputValue.compareTo(item.getTotal()) > 0) {
-            throw new IllegalArgumentException("Exact allocation cannot exceed the item total");
-        }
         boolean alreadyAllocated = item.getAllocations().stream()
                 .anyMatch(allocation -> allocation.getParticipant().getId().equals(participantId));
         if (alreadyAllocated) {
             throw new IllegalArgumentException("Participant already has an allocation for this item");
+        }
+
+        boolean usesAnotherAllocationType = item.getAllocations().stream()
+                .map(ReceiptItemAllocation::getAllocationType)
+                .anyMatch(existingType -> existingType != type);
+        if (usesAnotherAllocationType) {
+            throw new IllegalArgumentException("All allocations for an item must use the same allocation type");
+        }
+
+        BigDecimal allocatedInputTotal = item.getAllocations().stream()
+                .map(ReceiptItemAllocation::getInputValue)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .add(inputValue);
+
+        if (type == AllocationType.EXACT && allocatedInputTotal.compareTo(item.getTotal()) > 0) {
+            throw new IllegalArgumentException("Exact allocations cannot exceed the item total");
+        }
+        if (type == AllocationType.PERCENTAGE
+                && allocatedInputTotal.compareTo(new BigDecimal("100")) > 0) {
+            throw new IllegalArgumentException("Percentage allocations cannot exceed 100");
         }
 
         ReceiptItemAllocation allocation = new ReceiptItemAllocation();
