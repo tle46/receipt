@@ -17,10 +17,6 @@ public class CreateReceiptRequest {
 
     private LocalDateTime purchaseDate;
 
-    @NotNull(message = "Subtotal is required")
-    @DecimalMin(value = "0.00", message = "Subtotal cannot be negative")
-    private BigDecimal subtotal;
-
     @NotNull(message = "Discount is required")
     @DecimalMin(value = "0.00", message = "Discount cannot be negative")
     private BigDecimal discount;
@@ -67,14 +63,6 @@ public class CreateReceiptRequest {
 
     public void setPurchaseDate(LocalDateTime purchaseDate) {
         this.purchaseDate = purchaseDate;
-    }
-
-    public BigDecimal getSubtotal() {
-        return subtotal;
-    }
-
-    public void setSubtotal(BigDecimal subtotal) {
-        this.subtotal = subtotal;
     }
 
     public BigDecimal getDiscount() {

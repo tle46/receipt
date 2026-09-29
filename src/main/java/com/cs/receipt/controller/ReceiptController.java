@@ -37,7 +37,6 @@ public class ReceiptController {
         receipt.setMerchantName(request.getMerchantName());
         receipt.setPurchaseDate(request.getPurchaseDate());
 
-        receipt.setSubtotal(request.getSubtotal());
         receipt.setDiscount(request.getDiscount());
         receipt.setTax(request.getTax());
         receipt.setFee(request.getFee());
