@@ -2,6 +2,7 @@ package com.cs.receipt.service;
 
 import com.cs.receipt.model.User;
 import com.cs.receipt.repository.UserRepository;
+import com.cs.receipt.exception.ConflictException;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -18,11 +19,11 @@ public class UserService {
     public User createUser(User user) {
 
         if (userRepository.existsByUsername(user.getUsername())) {
-            throw new IllegalArgumentException("Username is already taken");
+            throw new ConflictException("Username is already taken");
         }
 
         if (userRepository.existsByEmail(user.getEmail())) {
-            throw new IllegalArgumentException("Email is already in use");
+            throw new ConflictException("Email is already in use");
         }
 
         return userRepository.save(user);

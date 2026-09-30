@@ -19,7 +19,6 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
 import java.util.List;
 
 @RestController
@@ -175,11 +174,4 @@ public class ReceiptController {
         return ReceiptResponse.fromReceipt(receiptService.settleReceipt(receiptId, userId));
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Map<String, String> handleIllegalArgumentException(
-            IllegalArgumentException exception) {
-
-        return Map.of("error", exception.getMessage());
-    }
 }
