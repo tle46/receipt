@@ -5,6 +5,7 @@ import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.model.ReceiptParticipant;
 import com.cs.receipt.model.ReceiptItemAllocation;
 import com.cs.receipt.model.AllocationType;
+import com.cs.receipt.model.ReceiptStatus;
 import com.cs.receipt.model.User;
 import com.cs.receipt.repository.ReceiptRepository;
 import com.cs.receipt.repository.ReceiptParticipantRepository;
@@ -243,6 +244,36 @@ public class ReceiptService {
         return receiptRepository.saveAndFlush(receipt);
     }
 
+    /** Calculates the draft one final time, then locks its split for review and payment. */
+    @Transactional
+    public Receipt finalizeReceipt(Long receiptId, Long ownerId) {
+        Receipt receipt = calculateSplit(receiptId, ownerId);
+        receipt.setStatus(ReceiptStatus.FINALIZED);
+        return receiptRepository.saveAndFlush(receipt);
+    }
+
+    /** Reopens a finalized receipt so its items and allocations can be revised. */
+    @Transactional
+    public Receipt reopenReceipt(Long receiptId, Long ownerId) {
+        Receipt receipt = findOwned(receiptId, ownerId);
+        if (receipt.getStatus() != ReceiptStatus.FINALIZED) {
+            throw new IllegalArgumentException("Only finalized receipts can be reopened");
+        }
+        receipt.setStatus(ReceiptStatus.DRAFT);
+        return receiptRepository.saveAndFlush(receipt);
+    }
+
+    /** Marks a finalized receipt as paid. Settled receipts cannot be reopened or edited. */
+    @Transactional
+    public Receipt settleReceipt(Long receiptId, Long ownerId) {
+        Receipt receipt = findOwned(receiptId, ownerId);
+        if (receipt.getStatus() != ReceiptStatus.FINALIZED) {
+            throw new IllegalArgumentException("Only finalized receipts can be settled");
+        }
+        receipt.setStatus(ReceiptStatus.SETTLED);
+        return receiptRepository.saveAndFlush(receipt);
+    }
+
     private void calculateItemAllocations(ReceiptItem item) {
         List<ReceiptItemAllocation> allocations = item.getAllocations();
         if (allocations.isEmpty()) {
@@ -344,13 +375,18 @@ public class ReceiptService {
     }
 
     private Receipt findOwnedDraft(Long receiptId, Long ownerId) {
+        Receipt receipt = findOwned(receiptId, ownerId);
+        if (receipt.getStatus() != ReceiptStatus.DRAFT) {
+            throw new IllegalArgumentException("Only draft receipts can be modified");
+        }
+        return receipt;
+    }
+
+    private Receipt findOwned(Long receiptId, Long ownerId) {
         Receipt receipt = receiptRepository.findById(receiptId)
                 .orElseThrow(() -> new IllegalArgumentException("Receipt not found"));
         if (!receipt.getOwner().getId().equals(ownerId)) {
             throw new IllegalArgumentException("Only the receipt owner can modify it");
-        }
-        if (receipt.getStatus() != com.cs.receipt.model.ReceiptStatus.DRAFT) {
-            throw new IllegalArgumentException("Only draft receipts can be modified");
         }
         return receipt;
     }

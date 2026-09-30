@@ -3,6 +3,7 @@ package com.cs.receipt;
 import com.cs.receipt.model.AllocationType;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
+import com.cs.receipt.model.ReceiptStatus;
 import com.cs.receipt.model.User;
 import com.cs.receipt.repository.UserRepository;
 import com.cs.receipt.service.ReceiptService;
@@ -186,6 +187,32 @@ class ReceiptSplitCalculationIntegrationTests {
                 .extracting(allocation -> allocation.getFinalAmount())
                 .containsExactlyInAnyOrder(new BigDecimal("3.34"), new BigDecimal("3.33"), new BigDecimal("3.33"));
         assertThat(totalOwed(calculated)).isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    void finalizesReopensAndSettlesAReceiptThroughItsAllowedLifecycle() {
+        TwoParticipantReceipt split = twoParticipantReceipt("lifecycle", new BigDecimal("10.00"));
+        receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
+                split.ownerParticipantId(), AllocationType.EXACT, new BigDecimal("6.00"));
+        receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
+                split.friendParticipantId(), AllocationType.EXACT, new BigDecimal("4.00"));
+
+        Receipt finalized = receiptService.finalizeReceipt(split.receiptId(), split.ownerId());
+        assertThat(finalized.getStatus()).isEqualTo(ReceiptStatus.FINALIZED);
+        assertThatThrownBy(() -> receiptService.calculateSplit(split.receiptId(), split.ownerId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Only draft receipts can be modified");
+
+        Receipt reopened = receiptService.reopenReceipt(split.receiptId(), split.ownerId());
+        assertThat(reopened.getStatus()).isEqualTo(ReceiptStatus.DRAFT);
+
+        Receipt finalizedAgain = receiptService.finalizeReceipt(split.receiptId(), split.ownerId());
+        assertThat(finalizedAgain.getStatus()).isEqualTo(ReceiptStatus.FINALIZED);
+        Receipt settled = receiptService.settleReceipt(split.receiptId(), split.ownerId());
+        assertThat(settled.getStatus()).isEqualTo(ReceiptStatus.SETTLED);
+        assertThatThrownBy(() -> receiptService.reopenReceipt(split.receiptId(), split.ownerId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Only finalized receipts can be reopened");
     }
 
     private TwoParticipantReceipt twoParticipantReceipt(String suffix, BigDecimal itemTotal) {

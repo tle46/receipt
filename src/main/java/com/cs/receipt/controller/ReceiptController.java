@@ -87,6 +87,21 @@ public class ReceiptController {
         return ReceiptSplitResponse.from(receiptService.calculateSplit(receiptId, userId));
     }
 
+    @PostMapping("/{receiptId}/finalize")
+    public ReceiptSplitResponse finalizeReceipt(@PathVariable Long receiptId, @RequestParam Long userId) {
+        return ReceiptSplitResponse.from(receiptService.finalizeReceipt(receiptId, userId));
+    }
+
+    @PostMapping("/{receiptId}/reopen")
+    public ReceiptResponse reopenReceipt(@PathVariable Long receiptId, @RequestParam Long userId) {
+        return ReceiptResponse.fromReceipt(receiptService.reopenReceipt(receiptId, userId));
+    }
+
+    @PostMapping("/{receiptId}/settle")
+    public ReceiptResponse settleReceipt(@PathVariable Long receiptId, @RequestParam Long userId) {
+        return ReceiptResponse.fromReceipt(receiptService.settleReceipt(receiptId, userId));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public Map<String, String> handleIllegalArgumentException(
