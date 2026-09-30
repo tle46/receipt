@@ -301,6 +301,7 @@ class ReceiptSplitCalculationIntegrationTests {
                 LocalDateTime.of(2026, 9, 29, 18, 0), new BigDecimal("1.00"),
                 new BigDecimal("0.80"), new BigDecimal("0.20"), new BigDecimal("2.00"), "CAD");
 
+        assertThat(added.getId()).isNotNull();
         assertThat(added.getTotal()).isEqualByComparingTo("6.00");
         assertThat(updated.getMerchantName()).isEqualTo("Cafe");
         assertThat(updated.getCurrency()).isEqualTo("CAD");
