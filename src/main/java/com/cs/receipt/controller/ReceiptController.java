@@ -7,6 +7,7 @@ import com.cs.receipt.dto.CreateReceiptParticipantRequest;
 import com.cs.receipt.dto.CreateReceiptItemAllocationRequest;
 import com.cs.receipt.dto.ReceiptParticipantResponse;
 import com.cs.receipt.dto.ReceiptItemAllocationResponse;
+import com.cs.receipt.dto.ReceiptSplitResponse;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.service.ReceiptService;
@@ -79,6 +80,11 @@ public class ReceiptController {
                                                             @Valid @RequestBody CreateReceiptItemAllocationRequest request) {
         return ReceiptItemAllocationResponse.from(receiptService.addItemAllocation(receiptId, itemId,
                 userId, request.getParticipantId(), request.getAllocationType(), request.getInputValue()));
+    }
+
+    @PostMapping("/{receiptId}/calculate")
+    public ReceiptSplitResponse calculateSplit(@PathVariable Long receiptId, @RequestParam Long userId) {
+        return ReceiptSplitResponse.from(receiptService.calculateSplit(receiptId, userId));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
