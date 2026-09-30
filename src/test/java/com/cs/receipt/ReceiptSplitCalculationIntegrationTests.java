@@ -1,6 +1,7 @@
 package com.cs.receipt;
 
 import com.cs.receipt.model.AllocationType;
+import com.cs.receipt.dto.ReceiptResponse;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.model.ReceiptStatus;
@@ -213,6 +214,28 @@ class ReceiptSplitCalculationIntegrationTests {
         assertThatThrownBy(() -> receiptService.reopenReceipt(split.receiptId(), split.ownerId()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Only finalized receipts can be reopened");
+    }
+
+    @Test
+    void returnsAReceiptWithParticipantsAllocationsAndBalances() {
+        TwoParticipantReceipt split = twoParticipantReceipt("detailed-read", new BigDecimal("10.00"));
+        receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
+                split.ownerParticipantId(), AllocationType.EXACT, new BigDecimal("6.00"));
+        receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
+                split.friendParticipantId(), AllocationType.EXACT, new BigDecimal("4.00"));
+        receiptService.calculateSplit(split.receiptId(), split.ownerId());
+
+        ReceiptResponse receipt = receiptService.getReceipt(split.receiptId(), split.ownerId());
+
+        assertThat(receipt.getId()).isEqualTo(split.receiptId());
+        assertThat(receipt.getParticipants()).hasSize(2);
+        assertThat(receipt.getParticipants()).extracting(participant -> participant.finalOwedAmount())
+                .containsExactlyInAnyOrder(new BigDecimal("6.00"), new BigDecimal("4.00"));
+        assertThat(receipt.getItems()).singleElement().satisfies(item ->
+                assertThat(item.getAllocations()).hasSize(2));
+        assertThat(receiptService.listReceipts(split.ownerId()))
+                .extracting(ReceiptResponse::getId)
+                .contains(split.receiptId());
     }
 
     private TwoParticipantReceipt twoParticipantReceipt(String suffix, BigDecimal itemTotal) {
