@@ -8,6 +8,8 @@ import com.cs.receipt.dto.CreateReceiptItemAllocationRequest;
 import com.cs.receipt.dto.ReceiptParticipantResponse;
 import com.cs.receipt.dto.ReceiptItemAllocationResponse;
 import com.cs.receipt.dto.ReceiptSplitResponse;
+import com.cs.receipt.dto.UpdateReceiptItemRequest;
+import com.cs.receipt.dto.UpdateReceiptItemAllocationRequest;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.service.ReceiptService;
@@ -91,6 +93,49 @@ public class ReceiptController {
                                                             @Valid @RequestBody CreateReceiptItemAllocationRequest request) {
         return ReceiptItemAllocationResponse.from(receiptService.addItemAllocation(receiptId, itemId,
                 userId, request.getParticipantId(), request.getAllocationType(), request.getInputValue()));
+    }
+
+    @PutMapping("/{receiptId}/items/{itemId}")
+    public ReceiptResponse.ReceiptItemResponse updateReceiptItem(@PathVariable Long receiptId,
+                                                                  @PathVariable Long itemId,
+                                                                  @RequestParam Long userId,
+                                                                  @Valid @RequestBody UpdateReceiptItemRequest request) {
+        ReceiptItem item = receiptService.updateReceiptItem(receiptId, itemId, userId, request.getName(),
+                request.getQuantity(), request.getUnitPrice());
+        return new ReceiptResponse.ReceiptItemResponse(item.getId(), item.getName(), item.getQuantity(),
+                item.getUnitPrice(), item.getTotal(), item.getAllocations().stream()
+                .map(ReceiptItemAllocationResponse::from).toList());
+    }
+
+    @DeleteMapping("/{receiptId}/items/{itemId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteReceiptItem(@PathVariable Long receiptId, @PathVariable Long itemId,
+                                  @RequestParam Long userId) {
+        receiptService.deleteReceiptItem(receiptId, itemId, userId);
+    }
+
+    @PutMapping("/{receiptId}/items/{itemId}/allocations/{allocationId}")
+    public ReceiptItemAllocationResponse updateItemAllocation(@PathVariable Long receiptId,
+                                                               @PathVariable Long itemId,
+                                                               @PathVariable Long allocationId,
+                                                               @RequestParam Long userId,
+                                                               @Valid @RequestBody UpdateReceiptItemAllocationRequest request) {
+        return ReceiptItemAllocationResponse.from(receiptService.updateItemAllocation(receiptId, itemId,
+                allocationId, userId, request.getAllocationType(), request.getInputValue()));
+    }
+
+    @DeleteMapping("/{receiptId}/items/{itemId}/allocations/{allocationId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteItemAllocation(@PathVariable Long receiptId, @PathVariable Long itemId,
+                                     @PathVariable Long allocationId, @RequestParam Long userId) {
+        receiptService.deleteItemAllocation(receiptId, itemId, allocationId, userId);
+    }
+
+    @DeleteMapping("/{receiptId}/participants/{participantId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeParticipant(@PathVariable Long receiptId, @PathVariable Long participantId,
+                                  @RequestParam Long userId) {
+        receiptService.removeParticipant(receiptId, participantId, userId);
     }
 
     @PostMapping("/{receiptId}/calculate")

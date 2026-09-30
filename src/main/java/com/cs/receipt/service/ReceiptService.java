@@ -168,6 +168,7 @@ public class ReceiptService {
         participant.setReceipt(receipt);
         participant.setUser(participantUser);
         receipt.getParticipants().add(participant);
+        clearCalculatedAmounts(receipt);
         return receiptParticipantRepository.saveAndFlush(participant);
     }
 
@@ -218,7 +219,86 @@ public class ReceiptService {
         allocation.setAllocationType(type);
         allocation.setInputValue(inputValue);
         item.getAllocations().add(allocation);
+        clearCalculatedAmounts(receipt);
         return receiptItemAllocationRepository.saveAndFlush(allocation);
+    }
+
+    @Transactional
+    public ReceiptItem updateReceiptItem(Long receiptId, Long itemId, Long ownerId,
+                                         String name, BigDecimal quantity, BigDecimal unitPrice) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        ReceiptItem item = findItem(receipt, itemId);
+        item.setName(name);
+        item.setQuantity(quantity);
+        item.setUnitPrice(unitPrice);
+        item.setTotal(quantity.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP));
+        recalculateReceiptTotal(receipt);
+        clearCalculatedAmounts(receipt);
+        receiptRepository.saveAndFlush(receipt);
+        return item;
+    }
+
+    @Transactional
+    public void deleteReceiptItem(Long receiptId, Long itemId, Long ownerId) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        if (receipt.getItems().size() == 1) {
+            throw new IllegalArgumentException("A receipt must have at least one item");
+        }
+        receipt.getItems().remove(findItem(receipt, itemId));
+        recalculateReceiptTotal(receipt);
+        clearCalculatedAmounts(receipt);
+        receiptRepository.saveAndFlush(receipt);
+    }
+
+    @Transactional
+    public ReceiptItemAllocation updateItemAllocation(Long receiptId, Long itemId, Long allocationId,
+                                                       Long ownerId, AllocationType type, BigDecimal inputValue) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        ReceiptItem item = findItem(receipt, itemId);
+        ReceiptItemAllocation allocation = item.getAllocations().stream()
+                .filter(candidate -> candidate.getId().equals(allocationId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Receipt item allocation not found"));
+
+        List<ReceiptItemAllocation> otherAllocations = item.getAllocations().stream()
+                .filter(candidate -> !candidate.getId().equals(allocationId))
+                .toList();
+        validateAllocationTypeAndTotals(item, otherAllocations, type, inputValue);
+        allocation.setAllocationType(type);
+        allocation.setInputValue(inputValue);
+        clearCalculatedAmounts(receipt);
+        return receiptItemAllocationRepository.saveAndFlush(allocation);
+    }
+
+    @Transactional
+    public void deleteItemAllocation(Long receiptId, Long itemId, Long allocationId, Long ownerId) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        ReceiptItem item = findItem(receipt, itemId);
+        ReceiptItemAllocation allocation = item.getAllocations().stream()
+                .filter(candidate -> candidate.getId().equals(allocationId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Receipt item allocation not found"));
+        item.getAllocations().remove(allocation);
+        clearCalculatedAmounts(receipt);
+        receiptRepository.saveAndFlush(receipt);
+    }
+
+    @Transactional
+    public void removeParticipant(Long receiptId, Long participantId, Long ownerId) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        ReceiptParticipant participant = findParticipant(receipt, participantId);
+        if (participant.getUser().getId().equals(receipt.getOwner().getId())) {
+            throw new IllegalArgumentException("The receipt owner cannot be removed as a participant");
+        }
+        boolean hasAllocations = receipt.getItems().stream()
+                .flatMap(item -> item.getAllocations().stream())
+                .anyMatch(allocation -> allocation.getParticipant().getId().equals(participantId));
+        if (hasAllocations) {
+            throw new IllegalArgumentException("Remove the participant's allocations before removing the participant");
+        }
+        receipt.getParticipants().remove(participant);
+        clearCalculatedAmounts(receipt);
+        receiptRepository.saveAndFlush(receipt);
     }
 
     /**
@@ -388,6 +468,63 @@ public class ReceiptService {
             rounded.set(recipientIndex, rounded.get(recipientIndex).add(new BigDecimal("0.01")));
         }
         return rounded;
+    }
+
+    private ReceiptItem findItem(Receipt receipt, Long itemId) {
+        return receipt.getItems().stream()
+                .filter(candidate -> candidate.getId().equals(itemId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Receipt item not found"));
+    }
+
+    private ReceiptParticipant findParticipant(Receipt receipt, Long participantId) {
+        return receipt.getParticipants().stream()
+                .filter(candidate -> candidate.getId().equals(participantId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Receipt participant not found"));
+    }
+
+    private void validateAllocationTypeAndTotals(ReceiptItem item,
+                                                  List<ReceiptItemAllocation> existingAllocations,
+                                                  AllocationType type, BigDecimal inputValue) {
+        boolean usesAnotherAllocationType = existingAllocations.stream()
+                .map(ReceiptItemAllocation::getAllocationType)
+                .anyMatch(existingType -> existingType != type);
+        if (usesAnotherAllocationType) {
+            throw new IllegalArgumentException("All allocations for an item must use the same allocation type");
+        }
+        BigDecimal allocatedInputTotal = existingAllocations.stream()
+                .map(ReceiptItemAllocation::getInputValue)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .add(inputValue);
+        if (type == AllocationType.EXACT && allocatedInputTotal.compareTo(item.getTotal()) > 0) {
+            throw new IllegalArgumentException("Exact allocations cannot exceed the item total");
+        }
+        if (type == AllocationType.PERCENTAGE
+                && allocatedInputTotal.compareTo(new BigDecimal("100")) > 0) {
+            throw new IllegalArgumentException("Percentage allocations cannot exceed 100");
+        }
+    }
+
+    private void recalculateReceiptTotal(Receipt receipt) {
+        BigDecimal subtotal = receipt.getItems().stream()
+                .map(ReceiptItem::getTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+        receipt.setSubtotal(subtotal);
+        receipt.setTotal(subtotal.subtract(receipt.getDiscount())
+                .add(receipt.getTax())
+                .add(receipt.getFee())
+                .add(receipt.getTip())
+                .setScale(2, RoundingMode.HALF_UP));
+    }
+
+    private void clearCalculatedAmounts(Receipt receipt) {
+        receipt.getItems().forEach(item -> item.getAllocations().forEach(allocation ->
+                allocation.setFinalAmount(BigDecimal.ZERO)));
+        receipt.getParticipants().forEach(participant ->
+                participant.setFinalOwedAmount(BigDecimal.ZERO));
     }
 
     private Receipt findOwnedDraft(Long receiptId, Long ownerId) {

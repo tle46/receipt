@@ -238,6 +238,58 @@ class ReceiptSplitCalculationIntegrationTests {
                 .contains(split.receiptId());
     }
 
+    @Test
+    void updatesAnItemAndRecalculatesTheReceiptTotal() {
+        TwoParticipantReceipt split = twoParticipantReceipt("item-edit", new BigDecimal("10.00"));
+
+        ReceiptItem updated = receiptService.updateReceiptItem(split.receiptId(), split.itemId(), split.ownerId(),
+                "Updated item", new BigDecimal("2"), new BigDecimal("7.50"));
+        ReceiptResponse receipt = receiptService.getReceipt(split.receiptId(), split.ownerId());
+
+        assertThat(updated.getTotal()).isEqualByComparingTo("15.00");
+        assertThat(receipt.getSubtotal()).isEqualByComparingTo("15.00");
+        assertThat(receipt.getTotal()).isEqualByComparingTo("15.00");
+    }
+
+    @Test
+    void updatesAndDeletesAllocationsBeforeRemovingAParticipant() {
+        TwoParticipantReceipt split = twoParticipantReceipt("allocation-edit", new BigDecimal("10.00"));
+        var ownerAllocation = receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
+                split.ownerParticipantId(), AllocationType.EXACT, new BigDecimal("6.00"));
+        var friendAllocation = receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
+                split.friendParticipantId(), AllocationType.EXACT, new BigDecimal("4.00"));
+
+        receiptService.updateItemAllocation(split.receiptId(), split.itemId(), ownerAllocation.getId(), split.ownerId(),
+                AllocationType.EXACT, new BigDecimal("5.00"));
+        receiptService.updateItemAllocation(split.receiptId(), split.itemId(), friendAllocation.getId(), split.ownerId(),
+                AllocationType.EXACT, new BigDecimal("5.00"));
+        assertThat(receiptService.calculateSplit(split.receiptId(), split.ownerId()).getItems().getFirst().getAllocations())
+                .extracting(allocation -> allocation.getFinalAmount())
+                .containsExactlyInAnyOrder(new BigDecimal("5.00"), new BigDecimal("5.00"));
+
+        assertThatThrownBy(() -> receiptService.removeParticipant(split.receiptId(), split.friendParticipantId(), split.ownerId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Remove the participant's allocations");
+        receiptService.deleteItemAllocation(split.receiptId(), split.itemId(), friendAllocation.getId(), split.ownerId());
+        receiptService.removeParticipant(split.receiptId(), split.friendParticipantId(), split.ownerId());
+
+        assertThat(receiptService.getReceipt(split.receiptId(), split.ownerId()).getParticipants()).hasSize(1);
+    }
+
+    @Test
+    void deletesAnItemAndRecalculatesTheReceiptTotal() {
+        User owner = userRepository.save(user("owner-item-delete", "owner-item-delete@example.com"));
+        Receipt receipt = receiptService.createReceipt(owner.getId(), receiptWithTwoItems());
+
+        receiptService.deleteReceiptItem(receipt.getId(), receipt.getItems().getFirst().getId(), owner.getId());
+        ReceiptResponse updated = receiptService.getReceipt(receipt.getId(), owner.getId());
+
+        assertThat(updated.getItems()).singleElement().satisfies(item ->
+                assertThat(item.getTotal()).isEqualByComparingTo("10.00"));
+        assertThat(updated.getSubtotal()).isEqualByComparingTo("10.00");
+        assertThat(updated.getTotal()).isEqualByComparingTo("10.00");
+    }
+
     private TwoParticipantReceipt twoParticipantReceipt(String suffix, BigDecimal itemTotal) {
         User owner = userRepository.save(user("owner-" + suffix, "owner-" + suffix + "@example.com"));
         User friend = userRepository.save(user("friend-" + suffix, "friend-" + suffix + "@example.com"));
@@ -293,6 +345,22 @@ class ReceiptSplitCalculationIntegrationTests {
         item.setUnitPrice(itemTotal);
         item.setTotal(itemTotal);
         receipt.getItems().add(item);
+        return receipt;
+    }
+
+    private Receipt receiptWithTwoItems() {
+        Receipt receipt = receiptWithOneItem(new BigDecimal("20.00"));
+        ReceiptItem firstItem = receipt.getItems().getFirst();
+        firstItem.setName("First item");
+        firstItem.setUnitPrice(new BigDecimal("10.00"));
+        firstItem.setTotal(new BigDecimal("10.00"));
+
+        ReceiptItem secondItem = new ReceiptItem();
+        secondItem.setName("Second item");
+        secondItem.setQuantity(BigDecimal.ONE);
+        secondItem.setUnitPrice(new BigDecimal("10.00"));
+        secondItem.setTotal(new BigDecimal("10.00"));
+        receipt.getItems().add(secondItem);
         return receipt;
     }
 
