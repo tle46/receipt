@@ -8,9 +8,12 @@ import com.cs.receipt.model.AllocationType;
 import com.cs.receipt.model.ReceiptStatus;
 import com.cs.receipt.model.User;
 import com.cs.receipt.dto.ReceiptResponse;
+import com.cs.receipt.exception.ForbiddenOperationException;
+import com.cs.receipt.exception.ResourceNotFoundException;
 import com.cs.receipt.repository.ReceiptRepository;
 import com.cs.receipt.repository.ReceiptParticipantRepository;
 import com.cs.receipt.repository.ReceiptItemAllocationRepository;
+import com.cs.receipt.repository.ReceiptItemRepository;
 import com.cs.receipt.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,24 +34,27 @@ public class ReceiptService {
     private final UserRepository userRepository;
     private final ReceiptParticipantRepository receiptParticipantRepository;
     private final ReceiptItemAllocationRepository receiptItemAllocationRepository;
+    private final ReceiptItemRepository receiptItemRepository;
 
     public ReceiptService(
             ReceiptRepository receiptRepository,
             UserRepository userRepository,
             ReceiptParticipantRepository receiptParticipantRepository,
-            ReceiptItemAllocationRepository receiptItemAllocationRepository) {
+            ReceiptItemAllocationRepository receiptItemAllocationRepository,
+            ReceiptItemRepository receiptItemRepository) {
 
         this.receiptRepository = receiptRepository;
         this.userRepository = userRepository;
         this.receiptParticipantRepository = receiptParticipantRepository;
         this.receiptItemAllocationRepository = receiptItemAllocationRepository;
+        this.receiptItemRepository = receiptItemRepository;
     }
 
     public Receipt createReceipt(Long userId, Receipt receipt) {
 
         User owner = userRepository.findById(userId)
                 .orElseThrow(() ->
-                        new IllegalArgumentException("User not found"));
+                        new ResourceNotFoundException("User not found"));
 
         receipt.setOwner(owner);
 
@@ -145,7 +151,7 @@ public class ReceiptService {
     @Transactional(readOnly = true)
     public List<ReceiptResponse> listReceipts(Long userId) {
         if (!userRepository.existsById(userId)) {
-            throw new IllegalArgumentException("User not found");
+            throw new ResourceNotFoundException("User not found");
         }
         return receiptRepository.findByOwnerId(userId).stream()
                 .map(ReceiptResponse::fromReceipt)
@@ -156,7 +162,7 @@ public class ReceiptService {
     public ReceiptParticipant addParticipant(Long receiptId, Long ownerId, Long participantUserId) {
         Receipt receipt = findOwnedDraft(receiptId, ownerId);
         User participantUser = userRepository.findById(participantUserId)
-                .orElseThrow(() -> new IllegalArgumentException("Participant user not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Participant user not found"));
 
         boolean alreadyAdded = receipt.getParticipants().stream()
                 .anyMatch(participant -> participant.getUser().getId().equals(participantUserId));
@@ -180,11 +186,11 @@ public class ReceiptService {
         ReceiptItem item = receipt.getItems().stream()
                 .filter(candidate -> candidate.getId().equals(itemId))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Receipt item not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Receipt item not found"));
         ReceiptParticipant participant = receipt.getParticipants().stream()
                 .filter(candidate -> candidate.getId().equals(participantId))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Receipt participant not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Receipt participant not found"));
 
         boolean alreadyAllocated = item.getAllocations().stream()
                 .anyMatch(allocation -> allocation.getParticipant().getId().equals(participantId));
@@ -251,8 +257,7 @@ public class ReceiptService {
         receipt.getItems().add(item);
         recalculateReceiptTotal(receipt);
         clearCalculatedAmounts(receipt);
-        receiptRepository.saveAndFlush(receipt);
-        return item;
+        return receiptItemRepository.saveAndFlush(item);
     }
 
     @Transactional
@@ -292,7 +297,7 @@ public class ReceiptService {
         ReceiptItemAllocation allocation = item.getAllocations().stream()
                 .filter(candidate -> candidate.getId().equals(allocationId))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Receipt item allocation not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Receipt item allocation not found"));
 
         List<ReceiptItemAllocation> otherAllocations = item.getAllocations().stream()
                 .filter(candidate -> !candidate.getId().equals(allocationId))
@@ -311,7 +316,7 @@ public class ReceiptService {
         ReceiptItemAllocation allocation = item.getAllocations().stream()
                 .filter(candidate -> candidate.getId().equals(allocationId))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Receipt item allocation not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Receipt item allocation not found"));
         item.getAllocations().remove(allocation);
         clearCalculatedAmounts(receipt);
         receiptRepository.saveAndFlush(receipt);
@@ -508,14 +513,14 @@ public class ReceiptService {
         return receipt.getItems().stream()
                 .filter(candidate -> candidate.getId().equals(itemId))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Receipt item not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Receipt item not found"));
     }
 
     private ReceiptParticipant findParticipant(Receipt receipt, Long participantId) {
         return receipt.getParticipants().stream()
                 .filter(candidate -> candidate.getId().equals(participantId))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Receipt participant not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Receipt participant not found"));
     }
 
     private void validateAllocationTypeAndTotals(ReceiptItem item,
@@ -571,9 +576,9 @@ public class ReceiptService {
 
     private Receipt findOwned(Long receiptId, Long ownerId) {
         Receipt receipt = receiptRepository.findById(receiptId)
-                .orElseThrow(() -> new IllegalArgumentException("Receipt not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Receipt not found"));
         if (!receipt.getOwner().getId().equals(ownerId)) {
-            throw new IllegalArgumentException("Only the receipt owner can modify it");
+            throw new ForbiddenOperationException("Only the receipt owner can access this receipt");
         }
         return receipt;
     }
