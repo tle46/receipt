@@ -7,6 +7,7 @@ import com.cs.receipt.model.ReceiptItemAllocation;
 import com.cs.receipt.model.AllocationType;
 import com.cs.receipt.model.ReceiptStatus;
 import com.cs.receipt.model.User;
+import com.cs.receipt.dto.ReceiptResponse;
 import com.cs.receipt.repository.ReceiptRepository;
 import com.cs.receipt.repository.ReceiptParticipantRepository;
 import com.cs.receipt.repository.ReceiptItemAllocationRepository;
@@ -134,6 +135,21 @@ public class ReceiptService {
         receipt.setTotal(calculatedTotal);
 
         return receiptRepository.save(receipt);
+    }
+
+    @Transactional(readOnly = true)
+    public ReceiptResponse getReceipt(Long receiptId, Long userId) {
+        return ReceiptResponse.fromReceipt(findOwned(receiptId, userId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReceiptResponse> listReceipts(Long userId) {
+        if (!userRepository.existsById(userId)) {
+            throw new IllegalArgumentException("User not found");
+        }
+        return receiptRepository.findByOwnerId(userId).stream()
+                .map(ReceiptResponse::fromReceipt)
+                .toList();
     }
 
     @Transactional

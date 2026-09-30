@@ -21,6 +21,7 @@ public class ReceiptResponse {
     private String status;
     private Long ownerId;
     private List<ReceiptItemResponse> items;
+    private List<ReceiptParticipantResponse> participants;
 
     public ReceiptResponse() {
     }
@@ -38,7 +39,8 @@ public class ReceiptResponse {
             String currency,
             String status,
             Long ownerId,
-            List<ReceiptItemResponse> items) {
+            List<ReceiptItemResponse> items,
+            List<ReceiptParticipantResponse> participants) {
 
         this.id = id;
         this.merchantName = merchantName;
@@ -53,6 +55,7 @@ public class ReceiptResponse {
         this.status = status;
         this.ownerId = ownerId;
         this.items = items;
+        this.participants = participants;
     }
 
     public Long getId() {
@@ -101,6 +104,10 @@ public class ReceiptResponse {
         return items;
     }
 
+    public List<ReceiptParticipantResponse> getParticipants() {
+        return participants;
+    }
+
     public static class ReceiptItemResponse {
 
         private Long id;
@@ -108,6 +115,7 @@ public class ReceiptResponse {
         private BigDecimal quantity;
         private BigDecimal unitPrice;
         private BigDecimal total;
+        private List<ReceiptItemAllocationResponse> allocations;
 
         public ReceiptItemResponse() {
         }
@@ -117,13 +125,15 @@ public class ReceiptResponse {
                 String name,
                 BigDecimal quantity,
                 BigDecimal unitPrice,
-                BigDecimal total) {
+                BigDecimal total,
+                List<ReceiptItemAllocationResponse> allocations) {
 
             this.id = id;
             this.name = name;
             this.quantity = quantity;
             this.unitPrice = unitPrice;
             this.total = total;
+            this.allocations = allocations;
         }
 
         public Long getId() {
@@ -145,6 +155,10 @@ public class ReceiptResponse {
         public BigDecimal getTotal() {
             return total;
         }
+
+        public List<ReceiptItemAllocationResponse> getAllocations() {
+            return allocations;
+        }
     }
 
     public static ReceiptResponse fromReceipt(Receipt receipt) {
@@ -156,8 +170,16 @@ public class ReceiptResponse {
                         item.getName(),
                         item.getQuantity(),
                         item.getUnitPrice(),
-                        item.getTotal()
+                        item.getTotal(),
+                        item.getAllocations().stream()
+                                .map(ReceiptItemAllocationResponse::from)
+                                .toList()
                 ))
+                .toList();
+
+        List<ReceiptParticipantResponse> participants = receipt.getParticipants()
+                .stream()
+                .map(ReceiptParticipantResponse::from)
                 .toList();
 
         return new ReceiptResponse(
@@ -173,7 +195,8 @@ public class ReceiptResponse {
                 receipt.getCurrency(),
                 receipt.getStatus().name(),
                 receipt.getOwner().getId(),
-                items
+                items,
+                participants
         );
     }
 }

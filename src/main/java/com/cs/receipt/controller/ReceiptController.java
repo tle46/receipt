@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/receipts")
@@ -61,6 +62,16 @@ public class ReceiptController {
                 receiptService.createReceipt(userId, receipt);
 
         return ReceiptResponse.fromReceipt(savedReceipt);
+    }
+
+    @GetMapping("/{receiptId}")
+    public ReceiptResponse getReceipt(@PathVariable Long receiptId, @RequestParam Long userId) {
+        return receiptService.getReceipt(receiptId, userId);
+    }
+
+    @GetMapping
+    public List<ReceiptResponse> listReceipts(@RequestParam Long userId) {
+        return receiptService.listReceipts(userId);
     }
 
     @PostMapping("/{receiptId}/participants")
