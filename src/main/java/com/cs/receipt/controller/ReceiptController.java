@@ -12,6 +12,7 @@ import com.cs.receipt.dto.UpdateReceiptItemRequest;
 import com.cs.receipt.dto.UpdateReceiptItemAllocationRequest;
 import com.cs.receipt.dto.AddReceiptItemRequest;
 import com.cs.receipt.dto.UpdateReceiptDetailsRequest;
+import com.cs.receipt.dto.SaveReceiptDraftRequest;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.service.ReceiptService;
@@ -83,6 +84,12 @@ public class ReceiptController {
         return ReceiptResponse.fromReceipt(receiptService.updateReceiptDetails(receiptId, userId,
                 request.getMerchantName(), request.getPurchaseDate(), request.getDiscount(), request.getTax(),
                 request.getFee(), request.getTip(), request.getCurrency()));
+    }
+
+    @PutMapping("/{receiptId}/draft")
+    public ReceiptResponse saveDraft(@PathVariable Long receiptId, @RequestParam Long userId,
+                                     @Valid @RequestBody SaveReceiptDraftRequest request) {
+        return ReceiptResponse.fromReceipt(receiptService.saveDraft(receiptId, userId, request));
     }
 
     @PostMapping("/{receiptId}/participants")

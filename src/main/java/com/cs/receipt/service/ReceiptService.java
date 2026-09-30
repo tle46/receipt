@@ -8,6 +8,9 @@ import com.cs.receipt.model.AllocationType;
 import com.cs.receipt.model.ReceiptStatus;
 import com.cs.receipt.model.User;
 import com.cs.receipt.dto.ReceiptResponse;
+import com.cs.receipt.dto.SaveReceiptDraftAllocationRequest;
+import com.cs.receipt.dto.SaveReceiptDraftItemRequest;
+import com.cs.receipt.dto.SaveReceiptDraftRequest;
 import com.cs.receipt.exception.ForbiddenOperationException;
 import com.cs.receipt.exception.ResourceNotFoundException;
 import com.cs.receipt.repository.ReceiptRepository;
@@ -26,6 +29,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @Service
 public class ReceiptService {
@@ -272,6 +277,86 @@ public class ReceiptService {
         receipt.setFee(fee.setScale(2, RoundingMode.HALF_UP));
         receipt.setTip(tip.setScale(2, RoundingMode.HALF_UP));
         receipt.setCurrency(currency);
+        recalculateReceiptTotal(receipt);
+        clearCalculatedAmounts(receipt);
+        return receiptRepository.saveAndFlush(receipt);
+    }
+
+    /** Replaces every editable part of a draft receipt in one transaction. */
+    @Transactional
+    public Receipt saveDraft(Long receiptId, Long ownerId, SaveReceiptDraftRequest request) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        Set<Long> participantUserIds = new LinkedHashSet<>(request.getParticipantUserIds());
+        if (participantUserIds.size() != request.getParticipantUserIds().size()) {
+            throw new IllegalArgumentException("A participant can only appear once");
+        }
+        if (participantUserIds.contains(ownerId)) {
+            throw new IllegalArgumentException("Do not include the receipt owner in participantUserIds");
+        }
+
+        Map<Long, User> usersById = new HashMap<>();
+        usersById.put(ownerId, receipt.getOwner());
+        for (Long participantUserId : participantUserIds) {
+            User user = userRepository.findById(participantUserId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Participant user not found"));
+            usersById.put(participantUserId, user);
+        }
+
+        receipt.getItems().clear();
+        receipt.getParticipants().removeIf(participant -> !participant.getUser().getId().equals(ownerId));
+        receiptRepository.saveAndFlush(receipt);
+
+        Map<Long, ReceiptParticipant> participantsByUserId = new HashMap<>();
+        ReceiptParticipant ownerParticipant = receipt.getParticipants().stream()
+                .filter(participant -> participant.getUser().getId().equals(ownerId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Receipt owner must be a participant"));
+        participantsByUserId.put(ownerId, ownerParticipant);
+        for (Long participantUserId : participantUserIds) {
+            ReceiptParticipant participant = new ReceiptParticipant();
+            participant.setReceipt(receipt);
+            participant.setUser(usersById.get(participantUserId));
+            receipt.getParticipants().add(participant);
+            participantsByUserId.put(participantUserId, participant);
+        }
+
+        for (SaveReceiptDraftItemRequest itemRequest : request.getItems()) {
+            ReceiptItem item = new ReceiptItem();
+            item.setReceipt(receipt);
+            item.setName(itemRequest.getName());
+            item.setQuantity(itemRequest.getQuantity());
+            item.setUnitPrice(itemRequest.getUnitPrice());
+            item.setTotal(itemRequest.getQuantity().multiply(itemRequest.getUnitPrice())
+                    .setScale(2, RoundingMode.HALF_UP));
+
+            Set<Long> allocationUserIds = new LinkedHashSet<>();
+            for (SaveReceiptDraftAllocationRequest allocationRequest : itemRequest.getAllocations()) {
+                if (!allocationUserIds.add(allocationRequest.getUserId())) {
+                    throw new IllegalArgumentException("A participant can only have one allocation per item");
+                }
+                ReceiptParticipant participant = participantsByUserId.get(allocationRequest.getUserId());
+                if (participant == null) {
+                    throw new IllegalArgumentException("Every allocation user must be the owner or a participant");
+                }
+                validateAllocationTypeAndTotals(item, item.getAllocations(), allocationRequest.getAllocationType(),
+                        allocationRequest.getInputValue());
+                ReceiptItemAllocation allocation = new ReceiptItemAllocation();
+                allocation.setReceiptItem(item);
+                allocation.setParticipant(participant);
+                allocation.setAllocationType(allocationRequest.getAllocationType());
+                allocation.setInputValue(allocationRequest.getInputValue());
+                item.getAllocations().add(allocation);
+            }
+            receipt.getItems().add(item);
+        }
+
+        receipt.setMerchantName(request.getMerchantName());
+        receipt.setPurchaseDate(request.getPurchaseDate());
+        receipt.setDiscount(request.getDiscount().setScale(2, RoundingMode.HALF_UP));
+        receipt.setTax(request.getTax().setScale(2, RoundingMode.HALF_UP));
+        receipt.setFee(request.getFee().setScale(2, RoundingMode.HALF_UP));
+        receipt.setTip(request.getTip().setScale(2, RoundingMode.HALF_UP));
+        receipt.setCurrency(request.getCurrency());
         recalculateReceiptTotal(receipt);
         clearCalculatedAmounts(receipt);
         return receiptRepository.saveAndFlush(receipt);

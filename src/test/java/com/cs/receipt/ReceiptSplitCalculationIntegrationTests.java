@@ -2,6 +2,9 @@ package com.cs.receipt;
 
 import com.cs.receipt.model.AllocationType;
 import com.cs.receipt.dto.ReceiptResponse;
+import com.cs.receipt.dto.SaveReceiptDraftAllocationRequest;
+import com.cs.receipt.dto.SaveReceiptDraftItemRequest;
+import com.cs.receipt.dto.SaveReceiptDraftRequest;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.model.ReceiptStatus;
@@ -14,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -309,13 +313,41 @@ class ReceiptSplitCalculationIntegrationTests {
         assertThat(updated.getTotal()).isEqualByComparingTo("18.00");
     }
 
+    @Test
+    void replacesAnEntireDraftInOneRequest() {
+        TwoParticipantReceipt split = twoParticipantReceipt("bulk-draft", new BigDecimal("10.00"));
+        SaveReceiptDraftRequest request = new SaveReceiptDraftRequest();
+        request.setMerchantName("Bulk Bistro");
+        request.setPurchaseDate(LocalDateTime.of(2026, 9, 30, 18, 0));
+        request.setDiscount(BigDecimal.ZERO);
+        request.setTax(new BigDecimal("1.00"));
+        request.setFee(BigDecimal.ZERO);
+        request.setTip(BigDecimal.ZERO);
+        request.setCurrency("USD");
+        request.setParticipantUserIds(List.of(split.friendUserId()));
+        request.setItems(List.of(
+                draftItem("Pizza", "10.00", allocation(split.ownerId(), "EXACT", "6.00"),
+                        allocation(split.friendUserId(), "EXACT", "4.00")),
+                draftItem("Salad", "5.00", allocation(split.friendUserId(), "EXACT", "5.00"))));
+
+        Receipt saved = receiptService.saveDraft(split.receiptId(), split.ownerId(), request);
+        Receipt calculated = receiptService.calculateSplit(saved.getId(), split.ownerId());
+
+        assertThat(saved.getMerchantName()).isEqualTo("Bulk Bistro");
+        assertThat(saved.getItems()).hasSize(2);
+        assertThat(saved.getParticipants()).hasSize(2);
+        assertThat(calculated.getTotal()).isEqualByComparingTo("16.00");
+        assertThat(calculated.getParticipants()).extracting(participant -> participant.getFinalOwedAmount())
+                .containsExactlyInAnyOrder(new BigDecimal("6.40"), new BigDecimal("9.60"));
+    }
+
     private TwoParticipantReceipt twoParticipantReceipt(String suffix, BigDecimal itemTotal) {
         User owner = userRepository.save(user("owner-" + suffix, "owner-" + suffix + "@example.com"));
         User friend = userRepository.save(user("friend-" + suffix, "friend-" + suffix + "@example.com"));
         Receipt receipt = receiptService.createReceipt(owner.getId(), receiptWithOneItem(itemTotal));
         var friendParticipant = receiptService.addParticipant(receipt.getId(), owner.getId(), friend.getId());
         return new TwoParticipantReceipt(receipt.getId(), receipt.getItems().getFirst().getId(), owner.getId(),
-                receipt.getParticipants().getFirst().getId(), friendParticipant.getId());
+                receipt.getParticipants().getFirst().getId(), friendParticipant.getId(), friend.getId());
     }
 
     private BigDecimal totalOwed(Receipt receipt) {
@@ -347,6 +379,24 @@ class ReceiptSplitCalculationIntegrationTests {
         item.setTotal(new BigDecimal("10.00"));
         receipt.getItems().add(item);
         return receipt;
+    }
+
+    private SaveReceiptDraftItemRequest draftItem(String name, String unitPrice,
+                                                   SaveReceiptDraftAllocationRequest... allocations) {
+        SaveReceiptDraftItemRequest item = new SaveReceiptDraftItemRequest();
+        item.setName(name);
+        item.setQuantity(BigDecimal.ONE);
+        item.setUnitPrice(new BigDecimal(unitPrice));
+        item.setAllocations(List.of(allocations));
+        return item;
+    }
+
+    private SaveReceiptDraftAllocationRequest allocation(Long userId, String type, String inputValue) {
+        SaveReceiptDraftAllocationRequest allocation = new SaveReceiptDraftAllocationRequest();
+        allocation.setUserId(userId);
+        allocation.setAllocationType(AllocationType.valueOf(type));
+        allocation.setInputValue(new BigDecimal(inputValue));
+        return allocation;
     }
 
     private Receipt receiptWithOneItem(BigDecimal itemTotal) {
@@ -384,5 +434,6 @@ class ReceiptSplitCalculationIntegrationTests {
     }
 
     private record TwoParticipantReceipt(Long receiptId, Long itemId, Long ownerId,
-                                         Long ownerParticipantId, Long friendParticipantId) { }
+                                         Long ownerParticipantId, Long friendParticipantId,
+                                         Long friendUserId) { }
 }
