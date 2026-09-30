@@ -5,12 +5,14 @@ import com.cs.receipt.dto.UserResponse;
 import com.cs.receipt.model.User;
 import com.cs.receipt.service.UserService;
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 
 @RestController
 @RequestMapping("/api/users")
+@Tag(name = "Users", description = "Create receipt owners and participants")
 public class UserController {
 
     private final UserService userService;

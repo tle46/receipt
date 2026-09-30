@@ -17,6 +17,7 @@ import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.service.ReceiptService;
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -24,6 +25,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/receipts")
+@Tag(name = "Receipts", description = "Create, edit, calculate, finalize, and settle shared receipts")
 public class ReceiptController {
 
     private final ReceiptService receiptService;
