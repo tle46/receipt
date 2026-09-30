@@ -10,6 +10,8 @@ import com.cs.receipt.dto.ReceiptItemAllocationResponse;
 import com.cs.receipt.dto.ReceiptSplitResponse;
 import com.cs.receipt.dto.UpdateReceiptItemRequest;
 import com.cs.receipt.dto.UpdateReceiptItemAllocationRequest;
+import com.cs.receipt.dto.AddReceiptItemRequest;
+import com.cs.receipt.dto.UpdateReceiptDetailsRequest;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.service.ReceiptService;
@@ -76,6 +78,14 @@ public class ReceiptController {
         return receiptService.listReceipts(userId);
     }
 
+    @PutMapping("/{receiptId}")
+    public ReceiptResponse updateReceiptDetails(@PathVariable Long receiptId, @RequestParam Long userId,
+                                                @Valid @RequestBody UpdateReceiptDetailsRequest request) {
+        return ReceiptResponse.fromReceipt(receiptService.updateReceiptDetails(receiptId, userId,
+                request.getMerchantName(), request.getPurchaseDate(), request.getDiscount(), request.getTax(),
+                request.getFee(), request.getTip(), request.getCurrency()));
+    }
+
     @PostMapping("/{receiptId}/participants")
     @ResponseStatus(HttpStatus.CREATED)
     public ReceiptParticipantResponse addParticipant(@PathVariable Long receiptId,
@@ -95,6 +105,15 @@ public class ReceiptController {
                 userId, request.getParticipantId(), request.getAllocationType(), request.getInputValue()));
     }
 
+    @PostMapping("/{receiptId}/items")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ReceiptResponse.ReceiptItemResponse addReceiptItem(@PathVariable Long receiptId,
+                                                               @RequestParam Long userId,
+                                                               @Valid @RequestBody AddReceiptItemRequest request) {
+        return ReceiptResponse.ReceiptItemResponse.from(receiptService.addReceiptItem(receiptId, userId,
+                request.getName(), request.getQuantity(), request.getUnitPrice()));
+    }
+
     @PutMapping("/{receiptId}/items/{itemId}")
     public ReceiptResponse.ReceiptItemResponse updateReceiptItem(@PathVariable Long receiptId,
                                                                   @PathVariable Long itemId,
@@ -102,9 +121,7 @@ public class ReceiptController {
                                                                   @Valid @RequestBody UpdateReceiptItemRequest request) {
         ReceiptItem item = receiptService.updateReceiptItem(receiptId, itemId, userId, request.getName(),
                 request.getQuantity(), request.getUnitPrice());
-        return new ReceiptResponse.ReceiptItemResponse(item.getId(), item.getName(), item.getQuantity(),
-                item.getUnitPrice(), item.getTotal(), item.getAllocations().stream()
-                .map(ReceiptItemAllocationResponse::from).toList());
+        return ReceiptResponse.ReceiptItemResponse.from(item);
     }
 
     @DeleteMapping("/{receiptId}/items/{itemId}")

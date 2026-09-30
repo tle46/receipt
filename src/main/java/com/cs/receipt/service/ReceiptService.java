@@ -239,6 +239,40 @@ public class ReceiptService {
     }
 
     @Transactional
+    public ReceiptItem addReceiptItem(Long receiptId, Long ownerId, String name,
+                                      BigDecimal quantity, BigDecimal unitPrice) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        ReceiptItem item = new ReceiptItem();
+        item.setReceipt(receipt);
+        item.setName(name);
+        item.setQuantity(quantity);
+        item.setUnitPrice(unitPrice);
+        item.setTotal(quantity.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP));
+        receipt.getItems().add(item);
+        recalculateReceiptTotal(receipt);
+        clearCalculatedAmounts(receipt);
+        receiptRepository.saveAndFlush(receipt);
+        return item;
+    }
+
+    @Transactional
+    public Receipt updateReceiptDetails(Long receiptId, Long ownerId, String merchantName,
+                                        java.time.LocalDateTime purchaseDate, BigDecimal discount,
+                                        BigDecimal tax, BigDecimal fee, BigDecimal tip, String currency) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        receipt.setMerchantName(merchantName);
+        receipt.setPurchaseDate(purchaseDate);
+        receipt.setDiscount(discount.setScale(2, RoundingMode.HALF_UP));
+        receipt.setTax(tax.setScale(2, RoundingMode.HALF_UP));
+        receipt.setFee(fee.setScale(2, RoundingMode.HALF_UP));
+        receipt.setTip(tip.setScale(2, RoundingMode.HALF_UP));
+        receipt.setCurrency(currency);
+        recalculateReceiptTotal(receipt);
+        clearCalculatedAmounts(receipt);
+        return receiptRepository.saveAndFlush(receipt);
+    }
+
+    @Transactional
     public void deleteReceiptItem(Long receiptId, Long itemId, Long ownerId) {
         Receipt receipt = findOwnedDraft(receiptId, ownerId);
         if (receipt.getItems().size() == 1) {

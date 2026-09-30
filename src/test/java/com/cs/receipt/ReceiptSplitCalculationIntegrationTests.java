@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -288,6 +289,23 @@ class ReceiptSplitCalculationIntegrationTests {
                 assertThat(item.getTotal()).isEqualByComparingTo("10.00"));
         assertThat(updated.getSubtotal()).isEqualByComparingTo("10.00");
         assertThat(updated.getTotal()).isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    void addsAnItemAndUpdatesReceiptDetailsWithServerCalculatedTotals() {
+        TwoParticipantReceipt split = twoParticipantReceipt("add-item-details", new BigDecimal("10.00"));
+
+        ReceiptItem added = receiptService.addReceiptItem(split.receiptId(), split.ownerId(), "Dessert",
+                new BigDecimal("2"), new BigDecimal("3.00"));
+        Receipt updated = receiptService.updateReceiptDetails(split.receiptId(), split.ownerId(), "Cafe",
+                LocalDateTime.of(2026, 9, 29, 18, 0), new BigDecimal("1.00"),
+                new BigDecimal("0.80"), new BigDecimal("0.20"), new BigDecimal("2.00"), "CAD");
+
+        assertThat(added.getTotal()).isEqualByComparingTo("6.00");
+        assertThat(updated.getMerchantName()).isEqualTo("Cafe");
+        assertThat(updated.getCurrency()).isEqualTo("CAD");
+        assertThat(updated.getSubtotal()).isEqualByComparingTo("16.00");
+        assertThat(updated.getTotal()).isEqualByComparingTo("18.00");
     }
 
     private TwoParticipantReceipt twoParticipantReceipt(String suffix, BigDecimal itemTotal) {

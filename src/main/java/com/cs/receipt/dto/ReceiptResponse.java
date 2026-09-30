@@ -159,22 +159,18 @@ public class ReceiptResponse {
         public List<ReceiptItemAllocationResponse> getAllocations() {
             return allocations;
         }
+
+        public static ReceiptItemResponse from(com.cs.receipt.model.ReceiptItem item) {
+            return new ReceiptItemResponse(item.getId(), item.getName(), item.getQuantity(), item.getUnitPrice(),
+                    item.getTotal(), item.getAllocations().stream().map(ReceiptItemAllocationResponse::from).toList());
+        }
     }
 
     public static ReceiptResponse fromReceipt(Receipt receipt) {
 
         List<ReceiptItemResponse> items = receipt.getItems()
                 .stream()
-                .map(item -> new ReceiptItemResponse(
-                        item.getId(),
-                        item.getName(),
-                        item.getQuantity(),
-                        item.getUnitPrice(),
-                        item.getTotal(),
-                        item.getAllocations().stream()
-                                .map(ReceiptItemAllocationResponse::from)
-                                .toList()
-                ))
+                .map(ReceiptItemResponse::from)
                 .toList();
 
         List<ReceiptParticipantResponse> participants = receipt.getParticipants()
