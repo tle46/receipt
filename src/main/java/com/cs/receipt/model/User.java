@@ -15,8 +15,15 @@ public class User {
     @Column(nullable = false, unique = true)
     private String username;
 
-    @Column(nullable = false, unique = true)
+    @Column(unique = true)
     private String email;
+
+    @Column(nullable = false)
+    private String displayName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private UserStatus status = UserStatus.ACTIVE;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
@@ -44,6 +51,11 @@ public class User {
         this.email = email;
     }
 
+    public String getDisplayName() { return displayName; }
+    public void setDisplayName(String displayName) { this.displayName = displayName; }
+    public UserStatus getStatus() { return status; }
+    public void setStatus(UserStatus status) { this.status = status; }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -51,5 +63,8 @@ public class User {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+        if (displayName == null) {
+            displayName = username;
+        }
     }
 }
