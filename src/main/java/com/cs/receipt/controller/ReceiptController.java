@@ -80,6 +80,12 @@ public class ReceiptController {
         return receiptService.listReceipts(userId);
     }
 
+    @DeleteMapping("/{receiptId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteReceipt(@PathVariable Long receiptId, @RequestParam Long userId) {
+        receiptService.deleteReceipt(receiptId, userId);
+    }
+
     @PutMapping("/{receiptId}")
     public ReceiptResponse updateReceiptDetails(@PathVariable Long receiptId, @RequestParam Long userId,
                                                 @Valid @RequestBody UpdateReceiptDetailsRequest request) {

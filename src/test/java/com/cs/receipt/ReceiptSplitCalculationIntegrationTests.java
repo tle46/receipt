@@ -5,6 +5,7 @@ import com.cs.receipt.dto.ReceiptResponse;
 import com.cs.receipt.dto.SaveReceiptDraftAllocationRequest;
 import com.cs.receipt.dto.SaveReceiptDraftItemRequest;
 import com.cs.receipt.dto.SaveReceiptDraftRequest;
+import com.cs.receipt.exception.ResourceNotFoundException;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.model.ReceiptStatus;
@@ -341,6 +342,29 @@ class ReceiptSplitCalculationIntegrationTests {
                 .containsExactlyInAnyOrder(new BigDecimal("6.40"), new BigDecimal("9.60"));
     }
 
+    @Test
+    void deletesDraftAndFinalizedReceiptsButRejectsSettledReceipts() {
+        TwoParticipantReceipt draft = twoParticipantReceipt("delete-draft", new BigDecimal("10.00"));
+        receiptService.deleteReceipt(draft.receiptId(), draft.ownerId());
+        assertThatThrownBy(() -> receiptService.getReceipt(draft.receiptId(), draft.ownerId()))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        TwoParticipantReceipt finalized = twoParticipantReceipt("delete-finalized", new BigDecimal("10.00"));
+        addExactSplit(finalized);
+        receiptService.finalizeReceipt(finalized.receiptId(), finalized.ownerId());
+        receiptService.deleteReceipt(finalized.receiptId(), finalized.ownerId());
+        assertThatThrownBy(() -> receiptService.getReceipt(finalized.receiptId(), finalized.ownerId()))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        TwoParticipantReceipt settled = twoParticipantReceipt("delete-settled", new BigDecimal("10.00"));
+        addExactSplit(settled);
+        receiptService.finalizeReceipt(settled.receiptId(), settled.ownerId());
+        receiptService.settleReceipt(settled.receiptId(), settled.ownerId());
+        assertThatThrownBy(() -> receiptService.deleteReceipt(settled.receiptId(), settled.ownerId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Settled receipts cannot be deleted");
+    }
+
     private TwoParticipantReceipt twoParticipantReceipt(String suffix, BigDecimal itemTotal) {
         User owner = userRepository.save(user("owner-" + suffix, "owner-" + suffix + "@example.com"));
         User friend = userRepository.save(user("friend-" + suffix, "friend-" + suffix + "@example.com"));
@@ -397,6 +421,13 @@ class ReceiptSplitCalculationIntegrationTests {
         allocation.setAllocationType(AllocationType.valueOf(type));
         allocation.setInputValue(new BigDecimal(inputValue));
         return allocation;
+    }
+
+    private void addExactSplit(TwoParticipantReceipt split) {
+        receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
+                split.ownerParticipantId(), AllocationType.EXACT, new BigDecimal("6.00"));
+        receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
+                split.friendParticipantId(), AllocationType.EXACT, new BigDecimal("4.00"));
     }
 
     private Receipt receiptWithOneItem(BigDecimal itemTotal) {

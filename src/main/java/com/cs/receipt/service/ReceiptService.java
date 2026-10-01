@@ -494,6 +494,16 @@ public class ReceiptService {
         return receiptRepository.saveAndFlush(receipt);
     }
 
+    @Transactional
+    public void deleteReceipt(Long receiptId, Long ownerId) {
+        Receipt receipt = findOwned(receiptId, ownerId);
+        if (receipt.getStatus() == ReceiptStatus.SETTLED) {
+            throw new IllegalArgumentException("Settled receipts cannot be deleted");
+        }
+        receiptRepository.delete(receipt);
+        receiptRepository.flush();
+    }
+
     private void calculateItemAllocations(ReceiptItem item) {
         List<ReceiptItemAllocation> allocations = item.getAllocations();
         if (allocations.isEmpty()) {
