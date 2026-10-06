@@ -7,8 +7,6 @@ import java.util.List;
 
 public interface ReceiptRepository extends JpaRepository<Receipt, Long> {
 
-    List<Receipt> findByOwnerId(Long ownerId);
-
     List<Receipt> findDistinctByOwnerIdOrParticipantsUserId(Long ownerId, Long participantUserId);
 }
 

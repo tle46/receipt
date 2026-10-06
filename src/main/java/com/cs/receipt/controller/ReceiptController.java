@@ -8,9 +8,8 @@ import com.cs.receipt.dto.CreateReceiptItemAllocationRequest;
 import com.cs.receipt.dto.ReceiptParticipantResponse;
 import com.cs.receipt.dto.ReceiptItemAllocationResponse;
 import com.cs.receipt.dto.ReceiptSplitResponse;
-import com.cs.receipt.dto.UpdateReceiptItemRequest;
 import com.cs.receipt.dto.UpdateReceiptItemAllocationRequest;
-import com.cs.receipt.dto.AddReceiptItemRequest;
+import com.cs.receipt.dto.ReceiptItemRequest;
 import com.cs.receipt.dto.UpdateReceiptDetailsRequest;
 import com.cs.receipt.dto.SaveReceiptDraftRequest;
 import com.cs.receipt.dto.SaveReceiptDraftAdjustmentAllocationRequest;
@@ -131,7 +130,7 @@ public class ReceiptController {
     @ResponseStatus(HttpStatus.CREATED)
     public ReceiptResponse.ReceiptItemResponse addReceiptItem(@PathVariable Long receiptId,
                                                                @RequestParam Long userId,
-                                                               @Valid @RequestBody AddReceiptItemRequest request) {
+                                                               @Valid @RequestBody ReceiptItemRequest request) {
         return ReceiptResponse.ReceiptItemResponse.from(receiptService.addReceiptItem(receiptId, userId,
                 request.getName(), request.getQuantity(), request.getUnitPrice()));
     }
@@ -140,7 +139,7 @@ public class ReceiptController {
     public ReceiptResponse.ReceiptItemResponse updateReceiptItem(@PathVariable Long receiptId,
                                                                   @PathVariable Long itemId,
                                                                   @RequestParam Long userId,
-                                                                  @Valid @RequestBody UpdateReceiptItemRequest request) {
+                                                                  @Valid @RequestBody ReceiptItemRequest request) {
         ReceiptItem item = receiptService.updateReceiptItem(receiptId, itemId, userId, request.getName(),
                 request.getQuantity(), request.getUnitPrice());
         return ReceiptResponse.ReceiptItemResponse.from(item);

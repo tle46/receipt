@@ -8,6 +8,7 @@ import com.cs.receipt.model.User;
 import com.cs.receipt.model.UserStatus;
 import com.cs.receipt.service.ReceiptService;
 import com.cs.receipt.service.UserService;
+import com.cs.receipt.service.FriendService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,14 +24,17 @@ class FriendSystemIntegrationTests {
     private UserService userService;
 
     @Autowired
+    private FriendService friendService;
+
+    @Autowired
     private ReceiptService receiptService;
 
     @Test
     void createsPlaceholderAndInvitedContactsAndAllowsPlaceholdersOnReceipts() {
         User owner = userService.createUser(user("contact-owner", "contact-owner@example.com"));
 
-        FriendResponse placeholder = userService.addFriend(owner.getId(), friendRequest("Dinner guest", null));
-        FriendResponse invited = userService.addFriend(owner.getId(),
+        FriendResponse placeholder = friendService.addFriend(owner.getId(), friendRequest("Dinner guest", null));
+        FriendResponse invited = friendService.addFriend(owner.getId(),
                 friendRequest("Future user", "future-user@example.com"));
 
         assertThat(placeholder.displayName()).isEqualTo("Dinner guest");
@@ -38,14 +42,14 @@ class FriendSystemIntegrationTests {
         assertThat(placeholder.status()).isEqualTo(UserStatus.PLACEHOLDER.name());
         assertThat(invited.status()).isEqualTo(UserStatus.INVITED.name());
         assertThat(invited.email()).isEqualTo("future-user@example.com");
-        assertThat(userService.listFriends(owner.getId())).hasSize(2);
+        assertThat(friendService.listFriends(owner.getId())).hasSize(2);
 
         Receipt receipt = receiptService.createReceipt(owner.getId(), receipt());
         var participant = receiptService.addParticipant(receipt.getId(), owner.getId(), placeholder.userId());
         assertThat(participant.getUser().getId()).isEqualTo(placeholder.userId());
 
-        userService.removeFriend(owner.getId(), placeholder.userId());
-        assertThat(userService.listFriends(owner.getId())).extracting(FriendResponse::userId)
+        friendService.removeFriend(owner.getId(), placeholder.userId());
+        assertThat(friendService.listFriends(owner.getId())).extracting(FriendResponse::userId)
                 .containsExactly(invited.userId());
     }
 

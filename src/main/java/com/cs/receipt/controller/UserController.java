@@ -6,6 +6,7 @@ import com.cs.receipt.dto.CreateFriendRequest;
 import com.cs.receipt.dto.FriendResponse;
 import com.cs.receipt.model.User;
 import com.cs.receipt.service.UserService;
+import com.cs.receipt.service.FriendService;
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
@@ -20,9 +21,11 @@ import java.util.List;
 public class UserController {
 
     private final UserService userService;
+    private final FriendService friendService;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, FriendService friendService) {
         this.userService = userService;
+        this.friendService = friendService;
     }
 
     @PostMapping
@@ -48,18 +51,18 @@ public class UserController {
     @ResponseStatus(HttpStatus.CREATED)
     public FriendResponse addFriend(@PathVariable Long userId,
                                     @Valid @RequestBody CreateFriendRequest request) {
-        return userService.addFriend(userId, request);
+        return friendService.addFriend(userId, request);
     }
 
     @GetMapping("/{userId}/friends")
     public List<FriendResponse> listFriends(@PathVariable Long userId) {
-        return userService.listFriends(userId);
+        return friendService.listFriends(userId);
     }
 
     @DeleteMapping("/{userId}/friends/{friendUserId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeFriend(@PathVariable Long userId, @PathVariable Long friendUserId) {
-        userService.removeFriend(userId, friendUserId);
+        friendService.removeFriend(userId, friendUserId);
     }
 
 }

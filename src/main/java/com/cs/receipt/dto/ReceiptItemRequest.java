@@ -6,7 +6,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 
-public class UpdateReceiptItemRequest {
+public class ReceiptItemRequest {
     @NotBlank(message = "Item name is required")
     private String name;
 

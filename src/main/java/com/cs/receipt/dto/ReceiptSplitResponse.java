@@ -1,8 +1,6 @@
 package com.cs.receipt.dto;
 
 import com.cs.receipt.model.Receipt;
-import com.cs.receipt.model.ReceiptItemAllocation;
-import com.cs.receipt.model.ReceiptParticipant;
 
 import java.math.BigDecimal;
 import java.util.List;

@@ -236,14 +236,14 @@ class ReceiptSplitCalculationIntegrationTests {
 
         ReceiptResponse receipt = receiptService.getReceipt(split.receiptId(), split.ownerId());
 
-        assertThat(receipt.getId()).isEqualTo(split.receiptId());
-        assertThat(receipt.getParticipants()).hasSize(2);
-        assertThat(receipt.getParticipants()).extracting(participant -> participant.finalOwedAmount())
+        assertThat(receipt.id()).isEqualTo(split.receiptId());
+        assertThat(receipt.participants()).hasSize(2);
+        assertThat(receipt.participants()).extracting(participant -> participant.finalOwedAmount())
                 .containsExactlyInAnyOrder(new BigDecimal("6.00"), new BigDecimal("4.00"));
-        assertThat(receipt.getItems()).singleElement().satisfies(item ->
-                assertThat(item.getAllocations()).hasSize(2));
+        assertThat(receipt.items()).singleElement().satisfies(item ->
+                assertThat(item.allocations()).hasSize(2));
         assertThat(receiptService.listReceipts(split.ownerId()))
-                .extracting(ReceiptResponse::getId)
+                .extracting(ReceiptResponse::id)
                 .contains(split.receiptId());
     }
 
@@ -256,8 +256,8 @@ class ReceiptSplitCalculationIntegrationTests {
         ReceiptResponse receipt = receiptService.getReceipt(split.receiptId(), split.ownerId());
 
         assertThat(updated.getTotal()).isEqualByComparingTo("15.00");
-        assertThat(receipt.getSubtotal()).isEqualByComparingTo("15.00");
-        assertThat(receipt.getTotal()).isEqualByComparingTo("15.00");
+        assertThat(receipt.subtotal()).isEqualByComparingTo("15.00");
+        assertThat(receipt.total()).isEqualByComparingTo("15.00");
     }
 
     @Test
@@ -282,7 +282,7 @@ class ReceiptSplitCalculationIntegrationTests {
         receiptService.deleteItemAllocation(split.receiptId(), split.itemId(), friendAllocation.getId(), split.ownerId());
         receiptService.removeParticipant(split.receiptId(), split.friendParticipantId(), split.ownerId());
 
-        assertThat(receiptService.getReceipt(split.receiptId(), split.ownerId()).getParticipants()).hasSize(1);
+        assertThat(receiptService.getReceipt(split.receiptId(), split.ownerId()).participants()).hasSize(1);
     }
 
     @Test
@@ -293,10 +293,10 @@ class ReceiptSplitCalculationIntegrationTests {
         receiptService.deleteReceiptItem(receipt.getId(), receipt.getItems().getFirst().getId(), owner.getId());
         ReceiptResponse updated = receiptService.getReceipt(receipt.getId(), owner.getId());
 
-        assertThat(updated.getItems()).singleElement().satisfies(item ->
-                assertThat(item.getTotal()).isEqualByComparingTo("10.00"));
-        assertThat(updated.getSubtotal()).isEqualByComparingTo("10.00");
-        assertThat(updated.getTotal()).isEqualByComparingTo("10.00");
+        assertThat(updated.items()).singleElement().satisfies(item ->
+                assertThat(item.total()).isEqualByComparingTo("10.00"));
+        assertThat(updated.subtotal()).isEqualByComparingTo("10.00");
+        assertThat(updated.total()).isEqualByComparingTo("10.00");
     }
 
     @Test
@@ -361,7 +361,7 @@ class ReceiptSplitCalculationIntegrationTests {
 
         assertThat(calculated.getParticipants()).extracting(participant -> participant.getFinalOwedAmount())
                 .containsExactlyInAnyOrder(new BigDecimal("8.00"), new BigDecimal("8.00"));
-        assertThat(receiptService.getReceipt(split.receiptId(), split.ownerId()).getAdjustmentAllocations())
+        assertThat(receiptService.getReceipt(split.receiptId(), split.ownerId()).adjustmentAllocations())
                 .hasSize(3);
     }
 
@@ -417,12 +417,12 @@ class ReceiptSplitCalculationIntegrationTests {
                 receiptService.settleReceipt(split.receiptId(), split.ownerId());
             }
             ReceiptResponse viewed = receiptService.getReceipt(split.receiptId(), split.friendUserId());
-            assertThat(viewed.getStatus()).isEqualTo(status.name());
-            assertThat(viewed.getItems()).hasSize(1);
-            assertThat(viewed.getParticipants()).hasSize(2);
-            assertThat(receiptService.listReceipts(split.friendUserId())).extracting(ReceiptResponse::getId)
+            assertThat(viewed.status()).isEqualTo(status.name());
+            assertThat(viewed.items()).hasSize(1);
+            assertThat(viewed.participants()).hasSize(2);
+            assertThat(receiptService.listReceipts(split.friendUserId())).extracting(ReceiptResponse::id)
                     .containsExactlyInAnyOrder(split.receiptId(), ownReceipt.getId());
-            assertThat(receiptService.listReceipts(split.ownerId())).extracting(ReceiptResponse::getId)
+            assertThat(receiptService.listReceipts(split.ownerId())).extracting(ReceiptResponse::id)
                     .containsExactly(split.receiptId());
             assertThatThrownBy(() -> receiptService.getReceipt(split.receiptId(), outsider.getId()))
                     .isInstanceOf(ForbiddenOperationException.class);
@@ -432,7 +432,7 @@ class ReceiptSplitCalculationIntegrationTests {
     @Test
     void removingParticipantRevokesViewAndListAccess() {
         TwoParticipantReceipt split = twoParticipantReceipt("revoked-access", new BigDecimal("10.00"));
-        assertThat(receiptService.getReceipt(split.receiptId(), split.friendUserId()).getId())
+        assertThat(receiptService.getReceipt(split.receiptId(), split.friendUserId()).id())
                 .isEqualTo(split.receiptId());
         receiptService.removeParticipant(split.receiptId(), split.friendParticipantId(), split.ownerId());
         assertThatThrownBy(() -> receiptService.getReceipt(split.receiptId(), split.friendUserId()))
@@ -476,7 +476,7 @@ class ReceiptSplitCalculationIntegrationTests {
                 .isInstanceOf(ForbiddenOperationException.class);
         assertThatThrownBy(() -> receiptService.settleReceipt(id, viewer))
                 .isInstanceOf(ForbiddenOperationException.class);
-        assertThat(receiptService.getReceipt(id, viewer).getStatus()).isEqualTo("FINALIZED");
+        assertThat(receiptService.getReceipt(id, viewer).status()).isEqualTo("FINALIZED");
     }
 
     private TwoParticipantReceipt twoParticipantReceipt(String suffix, BigDecimal itemTotal) {

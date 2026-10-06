@@ -7,7 +7,6 @@ import com.cs.receipt.model.ReceiptItemAllocation;
 import com.cs.receipt.model.AllocationType;
 import com.cs.receipt.model.ReceiptStatus;
 import com.cs.receipt.model.ReceiptAdjustmentAllocation;
-import com.cs.receipt.model.ReceiptAdjustmentType;
 import com.cs.receipt.model.User;
 import com.cs.receipt.dto.ReceiptResponse;
 import com.cs.receipt.dto.SaveReceiptDraftAllocationRequest;
@@ -26,8 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.Comparator;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,21 +41,25 @@ public class ReceiptService {
     private final ReceiptParticipantRepository receiptParticipantRepository;
     private final ReceiptItemAllocationRepository receiptItemAllocationRepository;
     private final ReceiptItemRepository receiptItemRepository;
+    private final ReceiptSplitCalculator splitCalculator;
 
     public ReceiptService(
             ReceiptRepository receiptRepository,
             UserRepository userRepository,
             ReceiptParticipantRepository receiptParticipantRepository,
             ReceiptItemAllocationRepository receiptItemAllocationRepository,
-            ReceiptItemRepository receiptItemRepository) {
+            ReceiptItemRepository receiptItemRepository,
+            ReceiptSplitCalculator splitCalculator) {
 
         this.receiptRepository = receiptRepository;
         this.userRepository = userRepository;
         this.receiptParticipantRepository = receiptParticipantRepository;
         this.receiptItemAllocationRepository = receiptItemAllocationRepository;
         this.receiptItemRepository = receiptItemRepository;
+        this.splitCalculator = splitCalculator;
     }
 
+    @Transactional
     public Receipt createReceipt(Long userId, Receipt receipt) {
 
         User owner = userRepository.findById(userId)
@@ -75,9 +77,7 @@ public class ReceiptService {
 
         for (ReceiptItem item : receipt.getItems()) {
 
-            BigDecimal calculatedItemTotal = item.getQuantity()
-                    .multiply(item.getUnitPrice())
-                    .setScale(2, RoundingMode.HALF_UP);
+            BigDecimal calculatedItemTotal = itemTotal(item.getQuantity(), item.getUnitPrice());
 
             BigDecimal providedItemTotal = item.getTotal()
                     .setScale(2, RoundingMode.HALF_UP);
@@ -121,17 +121,9 @@ public class ReceiptService {
                 ? receipt.getTip()
                 : BigDecimal.ZERO;
 
-        BigDecimal calculatedTotal = calculatedSubtotal
-                .subtract(discount)
-                .add(tax)
-                .add(fee)
-                .add(tip)
-                .setScale(2, RoundingMode.HALF_UP);
-
-        receipt.setDiscount(discount.setScale(2, RoundingMode.HALF_UP));
-        receipt.setTax(tax.setScale(2, RoundingMode.HALF_UP));
-        receipt.setFee(fee.setScale(2, RoundingMode.HALF_UP));
-        receipt.setTip(tip.setScale(2, RoundingMode.HALF_UP));
+        BigDecimal calculatedTotal = receiptTotal(calculatedSubtotal, discount, tax, fee, tip);
+        applyReceiptDetails(receipt, receipt.getMerchantName(), receipt.getPurchaseDate(),
+                discount, tax, fee, tip, receipt.getCurrency());
 
         BigDecimal providedTotal = receipt.getTotal()
                 .setScale(2, RoundingMode.HALF_UP);
@@ -183,7 +175,7 @@ public class ReceiptService {
         participant.setUser(participantUser);
         receipt.getParticipants().add(participant);
         clearCalculatedAmounts(receipt);
-        return receiptParticipantRepository.saveAndFlush(participant);
+        return receiptParticipantRepository.save(participant);
     }
 
     @Transactional
@@ -191,14 +183,8 @@ public class ReceiptService {
                                                     Long participantId, AllocationType type,
                                                     BigDecimal inputValue) {
         Receipt receipt = findOwnedDraft(receiptId, ownerId);
-        ReceiptItem item = receipt.getItems().stream()
-                .filter(candidate -> candidate.getId().equals(itemId))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("Receipt item not found"));
-        ReceiptParticipant participant = receipt.getParticipants().stream()
-                .filter(candidate -> candidate.getId().equals(participantId))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("Receipt participant not found"));
+        ReceiptItem item = findItem(receipt, itemId);
+        ReceiptParticipant participant = findParticipant(receipt, participantId);
 
         boolean alreadyAllocated = item.getAllocations().stream()
                 .anyMatch(allocation -> allocation.getParticipant().getId().equals(participantId));
@@ -206,26 +192,7 @@ public class ReceiptService {
             throw new IllegalArgumentException("Participant already has an allocation for this item");
         }
 
-        boolean usesAnotherAllocationType = item.getAllocations().stream()
-                .map(ReceiptItemAllocation::getAllocationType)
-                .anyMatch(existingType -> existingType != type);
-        if (usesAnotherAllocationType) {
-            throw new IllegalArgumentException("All allocations for an item must use the same allocation type");
-        }
-
-        BigDecimal allocatedInputTotal = item.getAllocations().stream()
-                .map(ReceiptItemAllocation::getInputValue)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .add(inputValue);
-
-        if (type == AllocationType.EXACT && allocatedInputTotal.compareTo(item.getTotal()) > 0) {
-            throw new IllegalArgumentException("Exact allocations cannot exceed the item total");
-        }
-        if (type == AllocationType.PERCENTAGE
-                && allocatedInputTotal.compareTo(new BigDecimal("100")) > 0) {
-            throw new IllegalArgumentException("Percentage allocations cannot exceed 100");
-        }
+        validateAllocationTypeAndTotals(item, item.getAllocations(), type, inputValue);
 
         ReceiptItemAllocation allocation = new ReceiptItemAllocation();
         allocation.setReceiptItem(item);
@@ -234,7 +201,7 @@ public class ReceiptService {
         allocation.setInputValue(inputValue);
         item.getAllocations().add(allocation);
         clearCalculatedAmounts(receipt);
-        return receiptItemAllocationRepository.saveAndFlush(allocation);
+        return receiptItemAllocationRepository.save(allocation);
     }
 
     @Transactional
@@ -242,13 +209,9 @@ public class ReceiptService {
                                          String name, BigDecimal quantity, BigDecimal unitPrice) {
         Receipt receipt = findOwnedDraft(receiptId, ownerId);
         ReceiptItem item = findItem(receipt, itemId);
-        item.setName(name);
-        item.setQuantity(quantity);
-        item.setUnitPrice(unitPrice);
-        item.setTotal(quantity.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP));
+        applyItemDetails(item, name, quantity, unitPrice);
         recalculateReceiptTotal(receipt);
         clearCalculatedAmounts(receipt);
-        receiptRepository.saveAndFlush(receipt);
         return item;
     }
 
@@ -258,31 +221,22 @@ public class ReceiptService {
         Receipt receipt = findOwnedDraft(receiptId, ownerId);
         ReceiptItem item = new ReceiptItem();
         item.setReceipt(receipt);
-        item.setName(name);
-        item.setQuantity(quantity);
-        item.setUnitPrice(unitPrice);
-        item.setTotal(quantity.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP));
+        applyItemDetails(item, name, quantity, unitPrice);
         receipt.getItems().add(item);
         recalculateReceiptTotal(receipt);
         clearCalculatedAmounts(receipt);
-        return receiptItemRepository.saveAndFlush(item);
+        return receiptItemRepository.save(item);
     }
 
     @Transactional
     public Receipt updateReceiptDetails(Long receiptId, Long ownerId, String merchantName,
-                                        java.time.LocalDateTime purchaseDate, BigDecimal discount,
+                                        LocalDateTime purchaseDate, BigDecimal discount,
                                         BigDecimal tax, BigDecimal fee, BigDecimal tip, String currency) {
         Receipt receipt = findOwnedDraft(receiptId, ownerId);
-        receipt.setMerchantName(merchantName);
-        receipt.setPurchaseDate(purchaseDate);
-        receipt.setDiscount(discount.setScale(2, RoundingMode.HALF_UP));
-        receipt.setTax(tax.setScale(2, RoundingMode.HALF_UP));
-        receipt.setFee(fee.setScale(2, RoundingMode.HALF_UP));
-        receipt.setTip(tip.setScale(2, RoundingMode.HALF_UP));
-        receipt.setCurrency(currency);
+        applyReceiptDetails(receipt, merchantName, purchaseDate, discount, tax, fee, tip, currency);
         recalculateReceiptTotal(receipt);
         clearCalculatedAmounts(receipt);
-        return receiptRepository.saveAndFlush(receipt);
+        return receipt;
     }
 
     /** Replaces every editable part of a draft receipt in one transaction. */
@@ -308,7 +262,8 @@ public class ReceiptService {
         receipt.getItems().clear();
         receipt.getAdjustmentAllocations().clear();
         receipt.getParticipants().removeIf(participant -> !participant.getUser().getId().equals(ownerId));
-        receiptRepository.saveAndFlush(receipt);
+        // Delete old participants before inserting replacements with the same unique user keys.
+        receiptRepository.flush();
 
         Map<Long, ReceiptParticipant> participantsByUserId = new HashMap<>();
         ReceiptParticipant ownerParticipant = receipt.getParticipants().stream()
@@ -327,11 +282,7 @@ public class ReceiptService {
         for (SaveReceiptDraftItemRequest itemRequest : request.getItems()) {
             ReceiptItem item = new ReceiptItem();
             item.setReceipt(receipt);
-            item.setName(itemRequest.getName());
-            item.setQuantity(itemRequest.getQuantity());
-            item.setUnitPrice(itemRequest.getUnitPrice());
-            item.setTotal(itemRequest.getQuantity().multiply(itemRequest.getUnitPrice())
-                    .setScale(2, RoundingMode.HALF_UP));
+            applyItemDetails(item, itemRequest.getName(), itemRequest.getQuantity(), itemRequest.getUnitPrice());
 
             Set<Long> allocationUserIds = new LinkedHashSet<>();
             for (SaveReceiptDraftAllocationRequest allocationRequest : itemRequest.getAllocations()) {
@@ -354,17 +305,12 @@ public class ReceiptService {
             receipt.getItems().add(item);
         }
 
-        receipt.setMerchantName(request.getMerchantName());
-        receipt.setPurchaseDate(request.getPurchaseDate());
-        receipt.setDiscount(request.getDiscount().setScale(2, RoundingMode.HALF_UP));
-        receipt.setTax(request.getTax().setScale(2, RoundingMode.HALF_UP));
-        receipt.setFee(request.getFee().setScale(2, RoundingMode.HALF_UP));
-        receipt.setTip(request.getTip().setScale(2, RoundingMode.HALF_UP));
-        receipt.setCurrency(request.getCurrency());
+        applyReceiptDetails(receipt, request.getMerchantName(), request.getPurchaseDate(), request.getDiscount(),
+                request.getTax(), request.getFee(), request.getTip(), request.getCurrency());
         replaceAdjustmentAllocations(receipt, participantsByUserId, request.getAdjustmentAllocations());
         recalculateReceiptTotal(receipt);
         clearCalculatedAmounts(receipt);
-        return receiptRepository.saveAndFlush(receipt);
+        return receipt;
     }
 
     /**
@@ -378,7 +324,7 @@ public class ReceiptService {
         receipt.getAdjustmentAllocations().clear();
         replaceAdjustmentAllocations(receipt, participantsByUserId, allocations);
         clearCalculatedAmounts(receipt);
-        return receiptRepository.saveAndFlush(receipt);
+        return receipt;
     }
 
     @Transactional
@@ -390,7 +336,6 @@ public class ReceiptService {
         receipt.getItems().remove(findItem(receipt, itemId));
         recalculateReceiptTotal(receipt);
         clearCalculatedAmounts(receipt);
-        receiptRepository.saveAndFlush(receipt);
     }
 
     @Transactional
@@ -410,7 +355,7 @@ public class ReceiptService {
         allocation.setAllocationType(type);
         allocation.setInputValue(inputValue);
         clearCalculatedAmounts(receipt);
-        return receiptItemAllocationRepository.saveAndFlush(allocation);
+        return allocation;
     }
 
     @Transactional
@@ -423,7 +368,6 @@ public class ReceiptService {
                 .orElseThrow(() -> new ResourceNotFoundException("Receipt item allocation not found"));
         item.getAllocations().remove(allocation);
         clearCalculatedAmounts(receipt);
-        receiptRepository.saveAndFlush(receipt);
     }
 
     @Transactional
@@ -443,7 +387,6 @@ public class ReceiptService {
         }
         receipt.getParticipants().remove(participant);
         clearCalculatedAmounts(receipt);
-        receiptRepository.saveAndFlush(receipt);
     }
 
     /**
@@ -453,39 +396,8 @@ public class ReceiptService {
     @Transactional
     public Receipt calculateSplit(Long receiptId, Long ownerId) {
         Receipt receipt = findOwnedDraft(receiptId, ownerId);
-        Map<ReceiptParticipant, BigDecimal> itemSubtotals = new HashMap<>();
-        receipt.getParticipants().forEach(participant ->
-                itemSubtotals.put(participant, BigDecimal.ZERO.setScale(2)));
-
-        for (ReceiptItem item : receipt.getItems()) {
-            calculateItemAllocations(item);
-            for (ReceiptItemAllocation allocation : item.getAllocations()) {
-                itemSubtotals.merge(allocation.getParticipant(), allocation.getFinalAmount(), BigDecimal::add);
-            }
-        }
-
-        Map<ReceiptParticipant, BigDecimal> discounts = distributeAmount(receipt.getDiscount(), itemSubtotals);
-        Map<ReceiptParticipant, BigDecimal> taxes = distributeAdjustment(receipt, ReceiptAdjustmentType.TAX,
-                receipt.getTax(), itemSubtotals);
-        Map<ReceiptParticipant, BigDecimal> fees = distributeAdjustment(receipt, ReceiptAdjustmentType.FEE,
-                receipt.getFee(), itemSubtotals);
-        Map<ReceiptParticipant, BigDecimal> tips = distributeAdjustment(receipt, ReceiptAdjustmentType.TIP,
-                receipt.getTip(), itemSubtotals);
-
-        for (ReceiptParticipant participant : receipt.getParticipants()) {
-            BigDecimal owed = itemSubtotals.get(participant)
-                    .subtract(discounts.get(participant))
-                    .add(taxes.get(participant))
-                    .add(fees.get(participant))
-                    .add(tips.get(participant))
-                    .setScale(2, RoundingMode.HALF_UP);
-            participant.setFinalOwedAmount(owed);
-        }
-
-        receiptItemAllocationRepository.saveAll(receipt.getItems().stream()
-                .flatMap(item -> item.getAllocations().stream()).toList());
-        receiptParticipantRepository.saveAll(receipt.getParticipants());
-        return receiptRepository.saveAndFlush(receipt);
+        splitCalculator.calculate(receipt);
+        return receipt;
     }
 
     /** Calculates the draft one final time, then locks its split for review and payment. */
@@ -493,7 +405,7 @@ public class ReceiptService {
     public Receipt finalizeReceipt(Long receiptId, Long ownerId) {
         Receipt receipt = calculateSplit(receiptId, ownerId);
         receipt.setStatus(ReceiptStatus.FINALIZED);
-        return receiptRepository.saveAndFlush(receipt);
+        return receipt;
     }
 
     /** Reopens a finalized receipt so its items and allocations can be revised. */
@@ -504,7 +416,7 @@ public class ReceiptService {
             throw new IllegalArgumentException("Only finalized receipts can be reopened");
         }
         receipt.setStatus(ReceiptStatus.DRAFT);
-        return receiptRepository.saveAndFlush(receipt);
+        return receipt;
     }
 
     /** Marks a finalized receipt as paid. Settled receipts cannot be reopened or edited. */
@@ -515,7 +427,7 @@ public class ReceiptService {
             throw new IllegalArgumentException("Only finalized receipts can be settled");
         }
         receipt.setStatus(ReceiptStatus.SETTLED);
-        return receiptRepository.saveAndFlush(receipt);
+        return receipt;
     }
 
     @Transactional
@@ -525,132 +437,6 @@ public class ReceiptService {
             throw new IllegalArgumentException("Settled receipts cannot be deleted");
         }
         receiptRepository.delete(receipt);
-        receiptRepository.flush();
-    }
-
-    private void calculateItemAllocations(ReceiptItem item) {
-        List<ReceiptItemAllocation> allocations = item.getAllocations();
-        if (allocations.isEmpty()) {
-            throw new IllegalArgumentException("Every item must have at least one allocation: " + item.getName());
-        }
-
-        AllocationType type = allocations.getFirst().getAllocationType();
-        if (allocations.stream().anyMatch(allocation -> allocation.getAllocationType() != type)) {
-            throw new IllegalArgumentException("All allocations for an item must use the same allocation type");
-        }
-
-        List<BigDecimal> weights = switch (type) {
-            case EXACT -> exactWeights(item, allocations);
-            case EQUAL -> allocations.stream().map(allocation -> BigDecimal.ONE).toList();
-            case PERCENTAGE -> percentageWeights(allocations);
-            case SHARES -> shareWeights(allocations);
-        };
-        List<BigDecimal> amounts = distributeByWeights(item.getTotal(), allocations, weights);
-        for (int index = 0; index < allocations.size(); index++) {
-            allocations.get(index).setFinalAmount(amounts.get(index));
-        }
-    }
-
-    private List<BigDecimal> exactWeights(ReceiptItem item, List<ReceiptItemAllocation> allocations) {
-        BigDecimal total = allocations.stream().map(ReceiptItemAllocation::getInputValue)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (total.compareTo(item.getTotal()) != 0) {
-            throw new IllegalArgumentException("Exact allocations must equal the item total: " + item.getName());
-        }
-        return allocations.stream().map(ReceiptItemAllocation::getInputValue).toList();
-    }
-
-    private List<BigDecimal> percentageWeights(List<ReceiptItemAllocation> allocations) {
-        BigDecimal total = allocations.stream().map(ReceiptItemAllocation::getInputValue)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (total.compareTo(new BigDecimal("100")) != 0) {
-            throw new IllegalArgumentException("Percentage allocations must equal 100");
-        }
-        return allocations.stream().map(ReceiptItemAllocation::getInputValue).toList();
-    }
-
-    private List<BigDecimal> shareWeights(List<ReceiptItemAllocation> allocations) {
-        BigDecimal total = allocations.stream().map(ReceiptItemAllocation::getInputValue)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (total.signum() <= 0) {
-            throw new IllegalArgumentException("Share allocations must have a positive total");
-        }
-        return allocations.stream().map(ReceiptItemAllocation::getInputValue).toList();
-    }
-
-    private Map<ReceiptParticipant, BigDecimal> distributeAmount(
-            BigDecimal amount, Map<ReceiptParticipant, BigDecimal> weights) {
-        List<ReceiptParticipant> participants = new ArrayList<>(weights.keySet());
-        participants.sort(Comparator.comparing(ReceiptParticipant::getId));
-        List<BigDecimal> values = distributeByWeights(amount, participants,
-                participants.stream().map(weights::get).toList());
-        Map<ReceiptParticipant, BigDecimal> result = new HashMap<>();
-        for (int index = 0; index < participants.size(); index++) {
-            result.put(participants.get(index), values.get(index));
-        }
-        return result;
-    }
-
-    private Map<ReceiptParticipant, BigDecimal> distributeAdjustment(Receipt receipt,
-                                                                        ReceiptAdjustmentType type,
-                                                                        BigDecimal amount,
-                                                                        Map<ReceiptParticipant, BigDecimal> defaults) {
-        List<ReceiptAdjustmentAllocation> overrides = receipt.getAdjustmentAllocations().stream()
-                .filter(allocation -> allocation.getAdjustmentType() == type)
-                .toList();
-        if (overrides.isEmpty()) {
-            return distributeAmount(amount, defaults);
-        }
-
-        BigDecimal overrideTotal = overrides.stream().map(ReceiptAdjustmentAllocation::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
-        if (overrideTotal.compareTo(amount) != 0) {
-            throw new IllegalArgumentException("Manual " + type.name().toLowerCase()
-                    + " allocations must equal " + amount.setScale(2, RoundingMode.HALF_UP));
-        }
-
-        Map<ReceiptParticipant, BigDecimal> result = new HashMap<>();
-        receipt.getParticipants().forEach(participant -> result.put(participant, BigDecimal.ZERO.setScale(2)));
-        overrides.forEach(allocation -> result.put(allocation.getParticipant(), allocation.getAmount()
-                .setScale(2, RoundingMode.HALF_UP)));
-        return result;
-    }
-
-    private <T> List<BigDecimal> distributeByWeights(
-            BigDecimal total, List<T> recipients, List<BigDecimal> weights) {
-        if (recipients.isEmpty()) {
-            throw new IllegalArgumentException("Cannot distribute an amount without participants");
-        }
-        BigDecimal weightTotal = weights.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (weightTotal.signum() == 0) {
-            weights = recipients.stream().map(recipient -> BigDecimal.ONE).toList();
-            weightTotal = BigDecimal.valueOf(recipients.size());
-        }
-        BigDecimal finalWeightTotal = weightTotal;
-
-        List<BigDecimal> unrounded = weights.stream()
-                .map(weight -> total.multiply(weight).divide(finalWeightTotal, 12, RoundingMode.HALF_UP))
-                .toList();
-        List<BigDecimal> rounded = new ArrayList<>(unrounded.stream()
-                .map(value -> value.setScale(2, RoundingMode.DOWN)).toList());
-        BigDecimal remainder = total.subtract(rounded.stream().reduce(BigDecimal.ZERO, BigDecimal::add));
-        int centsToAssign = remainder.movePointRight(2).intValueExact();
-        if (centsToAssign < 0) {
-            throw new IllegalStateException("Unexpected negative rounding remainder");
-        }
-
-        List<Integer> order = new ArrayList<>();
-        for (int index = 0; index < recipients.size(); index++) {
-            order.add(index);
-        }
-        order.sort(Comparator.<Integer, BigDecimal>comparing(index ->
-                        unrounded.get(index).subtract(rounded.get(index)))
-                .reversed().thenComparingInt(index -> index));
-        for (int index = 0; index < centsToAssign; index++) {
-            int recipientIndex = order.get(index % order.size());
-            rounded.set(recipientIndex, rounded.get(recipientIndex).add(new BigDecimal("0.01")));
-        }
-        return rounded;
     }
 
     private ReceiptItem findItem(Receipt receipt, Long itemId) {
@@ -696,11 +482,35 @@ public class ReceiptService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
         receipt.setSubtotal(subtotal);
-        receipt.setTotal(subtotal.subtract(receipt.getDiscount())
-                .add(receipt.getTax())
-                .add(receipt.getFee())
-                .add(receipt.getTip())
-                .setScale(2, RoundingMode.HALF_UP));
+        receipt.setTotal(receiptTotal(subtotal, receipt.getDiscount(), receipt.getTax(), receipt.getFee(), receipt.getTip()));
+    }
+
+    private BigDecimal itemTotal(BigDecimal quantity, BigDecimal unitPrice) {
+        return quantity.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal receiptTotal(BigDecimal subtotal, BigDecimal discount, BigDecimal tax,
+                                     BigDecimal fee, BigDecimal tip) {
+        return subtotal.subtract(discount).add(tax).add(fee).add(tip).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private void applyItemDetails(ReceiptItem item, String name, BigDecimal quantity, BigDecimal unitPrice) {
+        item.setName(name);
+        item.setQuantity(quantity);
+        item.setUnitPrice(unitPrice);
+        item.setTotal(itemTotal(quantity, unitPrice));
+    }
+
+    private void applyReceiptDetails(Receipt receipt, String merchantName, LocalDateTime purchaseDate,
+                                      BigDecimal discount, BigDecimal tax, BigDecimal fee, BigDecimal tip,
+                                      String currency) {
+        receipt.setMerchantName(merchantName);
+        receipt.setPurchaseDate(purchaseDate);
+        receipt.setDiscount(discount.setScale(2, RoundingMode.HALF_UP));
+        receipt.setTax(tax.setScale(2, RoundingMode.HALF_UP));
+        receipt.setFee(fee.setScale(2, RoundingMode.HALF_UP));
+        receipt.setTip(tip.setScale(2, RoundingMode.HALF_UP));
+        receipt.setCurrency(currency);
     }
 
     private void clearCalculatedAmounts(Receipt receipt) {
