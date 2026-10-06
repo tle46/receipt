@@ -153,7 +153,7 @@ public class ReceiptService {
 
     @Transactional(readOnly = true)
     public ReceiptResponse getReceipt(Long receiptId, Long userId) {
-        return ReceiptResponse.fromReceipt(findOwned(receiptId, userId));
+        return ReceiptResponse.fromReceipt(findViewable(receiptId, userId));
     }
 
     @Transactional(readOnly = true)
@@ -161,7 +161,7 @@ public class ReceiptService {
         if (!userRepository.existsById(userId)) {
             throw new ResourceNotFoundException("User not found");
         }
-        return receiptRepository.findByOwnerId(userId).stream()
+        return receiptRepository.findDistinctByOwnerIdOrParticipantsUserId(userId, userId).stream()
                 .map(ReceiptResponse::fromReceipt)
                 .toList();
     }
@@ -749,11 +749,22 @@ public class ReceiptService {
         return receipt;
     }
 
+    private Receipt findViewable(Long receiptId, Long userId) {
+        Receipt receipt = receiptRepository.findById(receiptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Receipt not found"));
+        boolean isParticipant = receipt.getParticipants().stream()
+                .anyMatch(participant -> participant.getUser().getId().equals(userId));
+        if (!receipt.getOwner().getId().equals(userId) && !isParticipant) {
+            throw new ForbiddenOperationException("Only the receipt owner or a participant can view this receipt");
+        }
+        return receipt;
+    }
+
     private Receipt findOwned(Long receiptId, Long ownerId) {
         Receipt receipt = receiptRepository.findById(receiptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Receipt not found"));
         if (!receipt.getOwner().getId().equals(ownerId)) {
-            throw new ForbiddenOperationException("Only the receipt owner can access this receipt");
+            throw new ForbiddenOperationException("Only the receipt owner can modify this receipt");
         }
         return receipt;
     }
