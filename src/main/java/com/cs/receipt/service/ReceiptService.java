@@ -6,11 +6,14 @@ import com.cs.receipt.model.ReceiptParticipant;
 import com.cs.receipt.model.ReceiptItemAllocation;
 import com.cs.receipt.model.AllocationType;
 import com.cs.receipt.model.ReceiptStatus;
+import com.cs.receipt.model.ReceiptAdjustmentAllocation;
+import com.cs.receipt.model.ReceiptAdjustmentType;
 import com.cs.receipt.model.User;
 import com.cs.receipt.dto.ReceiptResponse;
 import com.cs.receipt.dto.SaveReceiptDraftAllocationRequest;
 import com.cs.receipt.dto.SaveReceiptDraftItemRequest;
 import com.cs.receipt.dto.SaveReceiptDraftRequest;
+import com.cs.receipt.dto.SaveReceiptDraftAdjustmentAllocationRequest;
 import com.cs.receipt.exception.ForbiddenOperationException;
 import com.cs.receipt.exception.ResourceNotFoundException;
 import com.cs.receipt.repository.ReceiptRepository;
@@ -303,6 +306,7 @@ public class ReceiptService {
         }
 
         receipt.getItems().clear();
+        receipt.getAdjustmentAllocations().clear();
         receipt.getParticipants().removeIf(participant -> !participant.getUser().getId().equals(ownerId));
         receiptRepository.saveAndFlush(receipt);
 
@@ -357,7 +361,22 @@ public class ReceiptService {
         receipt.setFee(request.getFee().setScale(2, RoundingMode.HALF_UP));
         receipt.setTip(request.getTip().setScale(2, RoundingMode.HALF_UP));
         receipt.setCurrency(request.getCurrency());
+        replaceAdjustmentAllocations(receipt, participantsByUserId, request.getAdjustmentAllocations());
         recalculateReceiptTotal(receipt);
+        clearCalculatedAmounts(receipt);
+        return receiptRepository.saveAndFlush(receipt);
+    }
+
+    /**
+     * Replaces all receipt-level manual overrides. Omit a charge type to use the default proportional split for it.
+     */
+    @Transactional
+    public Receipt saveAdjustmentAllocations(Long receiptId, Long ownerId,
+                                              List<SaveReceiptDraftAdjustmentAllocationRequest> allocations) {
+        Receipt receipt = findOwnedDraft(receiptId, ownerId);
+        Map<Long, ReceiptParticipant> participantsByUserId = participantsByUserId(receipt);
+        receipt.getAdjustmentAllocations().clear();
+        replaceAdjustmentAllocations(receipt, participantsByUserId, allocations);
         clearCalculatedAmounts(receipt);
         return receiptRepository.saveAndFlush(receipt);
     }
@@ -417,8 +436,10 @@ public class ReceiptService {
         boolean hasAllocations = receipt.getItems().stream()
                 .flatMap(item -> item.getAllocations().stream())
                 .anyMatch(allocation -> allocation.getParticipant().getId().equals(participantId));
-        if (hasAllocations) {
-            throw new IllegalArgumentException("Remove the participant's allocations before removing the participant");
+        boolean hasAdjustmentAllocations = receipt.getAdjustmentAllocations().stream()
+                .anyMatch(allocation -> allocation.getParticipant().getId().equals(participantId));
+        if (hasAllocations || hasAdjustmentAllocations) {
+            throw new IllegalArgumentException("Remove the participant's allocations (item and adjustment) before removing them");
         }
         receipt.getParticipants().remove(participant);
         clearCalculatedAmounts(receipt);
@@ -444,9 +465,12 @@ public class ReceiptService {
         }
 
         Map<ReceiptParticipant, BigDecimal> discounts = distributeAmount(receipt.getDiscount(), itemSubtotals);
-        Map<ReceiptParticipant, BigDecimal> taxes = distributeAmount(receipt.getTax(), itemSubtotals);
-        Map<ReceiptParticipant, BigDecimal> fees = distributeAmount(receipt.getFee(), itemSubtotals);
-        Map<ReceiptParticipant, BigDecimal> tips = distributeAmount(receipt.getTip(), itemSubtotals);
+        Map<ReceiptParticipant, BigDecimal> taxes = distributeAdjustment(receipt, ReceiptAdjustmentType.TAX,
+                receipt.getTax(), itemSubtotals);
+        Map<ReceiptParticipant, BigDecimal> fees = distributeAdjustment(receipt, ReceiptAdjustmentType.FEE,
+                receipt.getFee(), itemSubtotals);
+        Map<ReceiptParticipant, BigDecimal> tips = distributeAdjustment(receipt, ReceiptAdjustmentType.TIP,
+                receipt.getTip(), itemSubtotals);
 
         for (ReceiptParticipant participant : receipt.getParticipants()) {
             BigDecimal owed = itemSubtotals.get(participant)
@@ -567,6 +591,31 @@ public class ReceiptService {
         return result;
     }
 
+    private Map<ReceiptParticipant, BigDecimal> distributeAdjustment(Receipt receipt,
+                                                                        ReceiptAdjustmentType type,
+                                                                        BigDecimal amount,
+                                                                        Map<ReceiptParticipant, BigDecimal> defaults) {
+        List<ReceiptAdjustmentAllocation> overrides = receipt.getAdjustmentAllocations().stream()
+                .filter(allocation -> allocation.getAdjustmentType() == type)
+                .toList();
+        if (overrides.isEmpty()) {
+            return distributeAmount(amount, defaults);
+        }
+
+        BigDecimal overrideTotal = overrides.stream().map(ReceiptAdjustmentAllocation::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
+        if (overrideTotal.compareTo(amount) != 0) {
+            throw new IllegalArgumentException("Manual " + type.name().toLowerCase()
+                    + " allocations must equal " + amount.setScale(2, RoundingMode.HALF_UP));
+        }
+
+        Map<ReceiptParticipant, BigDecimal> result = new HashMap<>();
+        receipt.getParticipants().forEach(participant -> result.put(participant, BigDecimal.ZERO.setScale(2)));
+        overrides.forEach(allocation -> result.put(allocation.getParticipant(), allocation.getAmount()
+                .setScale(2, RoundingMode.HALF_UP)));
+        return result;
+    }
+
     private <T> List<BigDecimal> distributeByWeights(
             BigDecimal total, List<T> recipients, List<BigDecimal> weights) {
         if (recipients.isEmpty()) {
@@ -659,6 +708,37 @@ public class ReceiptService {
                 allocation.setFinalAmount(BigDecimal.ZERO)));
         receipt.getParticipants().forEach(participant ->
                 participant.setFinalOwedAmount(BigDecimal.ZERO));
+    }
+
+    private Map<Long, ReceiptParticipant> participantsByUserId(Receipt receipt) {
+        Map<Long, ReceiptParticipant> participants = new HashMap<>();
+        receipt.getParticipants().forEach(participant -> participants.put(participant.getUser().getId(), participant));
+        return participants;
+    }
+
+    private void replaceAdjustmentAllocations(Receipt receipt,
+                                              Map<Long, ReceiptParticipant> participantsByUserId,
+                                              List<SaveReceiptDraftAdjustmentAllocationRequest> requests) {
+        if (requests == null) {
+            return;
+        }
+        Set<String> seen = new java.util.HashSet<>();
+        for (SaveReceiptDraftAdjustmentAllocationRequest request : requests) {
+            ReceiptParticipant participant = participantsByUserId.get(request.getUserId());
+            if (participant == null) {
+                throw new IllegalArgumentException("Every adjustment allocation user must be the owner or a participant");
+            }
+            String key = request.getAdjustmentType().name() + ":" + request.getUserId();
+            if (!seen.add(key)) {
+                throw new IllegalArgumentException("A participant can only have one manual allocation per adjustment");
+            }
+            ReceiptAdjustmentAllocation allocation = new ReceiptAdjustmentAllocation();
+            allocation.setReceipt(receipt);
+            allocation.setParticipant(participant);
+            allocation.setAdjustmentType(request.getAdjustmentType());
+            allocation.setAmount(request.getAmount().setScale(2, RoundingMode.HALF_UP));
+            receipt.getAdjustmentAllocations().add(allocation);
+        }
     }
 
     private Receipt findOwnedDraft(Long receiptId, Long ownerId) {

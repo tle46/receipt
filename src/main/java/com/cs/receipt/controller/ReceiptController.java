@@ -13,6 +13,7 @@ import com.cs.receipt.dto.UpdateReceiptItemAllocationRequest;
 import com.cs.receipt.dto.AddReceiptItemRequest;
 import com.cs.receipt.dto.UpdateReceiptDetailsRequest;
 import com.cs.receipt.dto.SaveReceiptDraftRequest;
+import com.cs.receipt.dto.SaveReceiptDraftAdjustmentAllocationRequest;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.service.ReceiptService;
@@ -98,6 +99,13 @@ public class ReceiptController {
     public ReceiptResponse saveDraft(@PathVariable Long receiptId, @RequestParam Long userId,
                                      @Valid @RequestBody SaveReceiptDraftRequest request) {
         return ReceiptResponse.fromReceipt(receiptService.saveDraft(receiptId, userId, request));
+    }
+
+    /** Replaces manual tax, fee, and tip allocations. An empty list restores proportional allocation for all. */
+    @PutMapping("/{receiptId}/adjustment-allocations")
+    public ReceiptResponse saveAdjustmentAllocations(@PathVariable Long receiptId, @RequestParam Long userId,
+            @Valid @RequestBody List<@Valid SaveReceiptDraftAdjustmentAllocationRequest> allocations) {
+        return ReceiptResponse.fromReceipt(receiptService.saveAdjustmentAllocations(receiptId, userId, allocations));
     }
 
     @PostMapping("/{receiptId}/participants")

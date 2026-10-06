@@ -57,6 +57,9 @@ public class Receipt {
     @OneToMany(mappedBy = "receipt", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ReceiptParticipant> participants = new ArrayList<>();
 
+    @OneToMany(mappedBy = "receipt", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ReceiptAdjustmentAllocation> adjustmentAllocations = new ArrayList<>();
+
     public Receipt() {
     }
 
@@ -153,4 +156,6 @@ public class Receipt {
     }
 
     public List<ReceiptParticipant> getParticipants() { return participants; }
+
+    public List<ReceiptAdjustmentAllocation> getAdjustmentAllocations() { return adjustmentAllocations; }
 }

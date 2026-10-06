@@ -22,6 +22,7 @@ public class ReceiptResponse {
     private Long ownerId;
     private List<ReceiptItemResponse> items;
     private List<ReceiptParticipantResponse> participants;
+    private List<ReceiptAdjustmentAllocationResponse> adjustmentAllocations;
 
     public ReceiptResponse() {
     }
@@ -40,7 +41,8 @@ public class ReceiptResponse {
             String status,
             Long ownerId,
             List<ReceiptItemResponse> items,
-            List<ReceiptParticipantResponse> participants) {
+            List<ReceiptParticipantResponse> participants,
+            List<ReceiptAdjustmentAllocationResponse> adjustmentAllocations) {
 
         this.id = id;
         this.merchantName = merchantName;
@@ -56,6 +58,7 @@ public class ReceiptResponse {
         this.ownerId = ownerId;
         this.items = items;
         this.participants = participants;
+        this.adjustmentAllocations = adjustmentAllocations;
     }
 
     public Long getId() {
@@ -107,6 +110,8 @@ public class ReceiptResponse {
     public List<ReceiptParticipantResponse> getParticipants() {
         return participants;
     }
+
+    public List<ReceiptAdjustmentAllocationResponse> getAdjustmentAllocations() { return adjustmentAllocations; }
 
     public static class ReceiptItemResponse {
 
@@ -177,6 +182,9 @@ public class ReceiptResponse {
                 .stream()
                 .map(ReceiptParticipantResponse::from)
                 .toList();
+        List<ReceiptAdjustmentAllocationResponse> adjustmentAllocations = receipt.getAdjustmentAllocations().stream()
+                .map(ReceiptAdjustmentAllocationResponse::from)
+                .toList();
 
         return new ReceiptResponse(
                 receipt.getId(),
@@ -192,7 +200,8 @@ public class ReceiptResponse {
                 receipt.getStatus().name(),
                 receipt.getOwner().getId(),
                 items,
-                participants
+                participants,
+                adjustmentAllocations
         );
     }
 }

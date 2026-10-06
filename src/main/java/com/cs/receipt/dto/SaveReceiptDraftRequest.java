@@ -28,6 +28,8 @@ public class SaveReceiptDraftRequest {
     private List<Long> participantUserIds;
     @NotNull @Size(min = 1, message = "Receipt must have at least one item") @Valid
     private List<SaveReceiptDraftItemRequest> items;
+    @Valid
+    private List<SaveReceiptDraftAdjustmentAllocationRequest> adjustmentAllocations = List.of();
 
     public String getMerchantName() { return merchantName; }
     public void setMerchantName(String merchantName) { this.merchantName = merchantName; }
@@ -47,4 +49,8 @@ public class SaveReceiptDraftRequest {
     public void setParticipantUserIds(List<Long> participantUserIds) { this.participantUserIds = participantUserIds; }
     public List<SaveReceiptDraftItemRequest> getItems() { return items; }
     public void setItems(List<SaveReceiptDraftItemRequest> items) { this.items = items; }
+    public List<SaveReceiptDraftAdjustmentAllocationRequest> getAdjustmentAllocations() { return adjustmentAllocations; }
+    public void setAdjustmentAllocations(List<SaveReceiptDraftAdjustmentAllocationRequest> adjustmentAllocations) {
+        this.adjustmentAllocations = adjustmentAllocations;
+    }
 }

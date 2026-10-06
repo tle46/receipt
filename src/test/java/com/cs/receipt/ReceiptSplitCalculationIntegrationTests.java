@@ -5,6 +5,8 @@ import com.cs.receipt.dto.ReceiptResponse;
 import com.cs.receipt.dto.SaveReceiptDraftAllocationRequest;
 import com.cs.receipt.dto.SaveReceiptDraftItemRequest;
 import com.cs.receipt.dto.SaveReceiptDraftRequest;
+import com.cs.receipt.dto.SaveReceiptDraftAdjustmentAllocationRequest;
+import com.cs.receipt.model.ReceiptAdjustmentType;
 import com.cs.receipt.exception.ResourceNotFoundException;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
@@ -343,6 +345,40 @@ class ReceiptSplitCalculationIntegrationTests {
     }
 
     @Test
+    void usesManualTaxFeeAndTipAllocationsWhenTheyAreProvided() {
+        TwoParticipantReceipt split = twoParticipantReceipt("manual-adjustments", new BigDecimal("10.00"));
+        receiptService.updateReceiptDetails(split.receiptId(), split.ownerId(), "Cafe", null, BigDecimal.ZERO,
+                new BigDecimal("2.00"), new BigDecimal("1.00"), new BigDecimal("3.00"), "USD");
+        addExactSplit(split);
+
+        receiptService.saveAdjustmentAllocations(split.receiptId(), split.ownerId(), List.of(
+                adjustment("TAX", split.ownerId(), "2.00"),
+                adjustment("FEE", split.friendUserId(), "1.00"),
+                adjustment("TIP", split.friendUserId(), "3.00")));
+
+        Receipt calculated = receiptService.calculateSplit(split.receiptId(), split.ownerId());
+
+        assertThat(calculated.getParticipants()).extracting(participant -> participant.getFinalOwedAmount())
+                .containsExactlyInAnyOrder(new BigDecimal("8.00"), new BigDecimal("8.00"));
+        assertThat(receiptService.getReceipt(split.receiptId(), split.ownerId()).getAdjustmentAllocations())
+                .hasSize(3);
+    }
+
+    @Test
+    void rejectsManualAdjustmentAllocationsThatDoNotEqualTheCharge() {
+        TwoParticipantReceipt split = twoParticipantReceipt("invalid-manual-adjustments", new BigDecimal("10.00"));
+        receiptService.updateReceiptDetails(split.receiptId(), split.ownerId(), "Cafe", null, BigDecimal.ZERO,
+                new BigDecimal("2.00"), BigDecimal.ZERO, BigDecimal.ZERO, "USD");
+        addExactSplit(split);
+        receiptService.saveAdjustmentAllocations(split.receiptId(), split.ownerId(),
+                List.of(adjustment("TAX", split.ownerId(), "1.50")));
+
+        assertThatThrownBy(() -> receiptService.calculateSplit(split.receiptId(), split.ownerId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Manual tax allocations must equal 2.00");
+    }
+
+    @Test
     void deletesDraftAndFinalizedReceiptsButRejectsSettledReceipts() {
         TwoParticipantReceipt draft = twoParticipantReceipt("delete-draft", new BigDecimal("10.00"));
         receiptService.deleteReceipt(draft.receiptId(), draft.ownerId());
@@ -420,6 +456,14 @@ class ReceiptSplitCalculationIntegrationTests {
         allocation.setUserId(userId);
         allocation.setAllocationType(AllocationType.valueOf(type));
         allocation.setInputValue(new BigDecimal(inputValue));
+        return allocation;
+    }
+
+    private SaveReceiptDraftAdjustmentAllocationRequest adjustment(String type, Long userId, String amount) {
+        SaveReceiptDraftAdjustmentAllocationRequest allocation = new SaveReceiptDraftAdjustmentAllocationRequest();
+        allocation.setAdjustmentType(ReceiptAdjustmentType.valueOf(type));
+        allocation.setUserId(userId);
+        allocation.setAmount(new BigDecimal(amount));
         return allocation;
     }
 
