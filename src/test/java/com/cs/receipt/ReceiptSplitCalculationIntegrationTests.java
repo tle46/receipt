@@ -403,14 +403,22 @@ class ReceiptSplitCalculationIntegrationTests {
     }
 
     @Test
-    void participantsCanViewAndListReceiptsInEveryStatusWithoutDuplicates() {
+    void participantsOnlySeeFinalizedAndSettledReceiptsWithoutDuplicates() {
         TwoParticipantReceipt split = twoParticipantReceipt("view-access", new BigDecimal("10.00"));
         Receipt ownReceipt = receiptService.createReceipt(split.friendUserId(), receiptWithOneItem(BigDecimal.ONE));
         User outsider = userRepository.save(user("view-outsider", "view-outsider@example.com"));
         receiptService.createReceipt(outsider.getId(), receiptWithOneItem(BigDecimal.ONE));
         addExactSplit(split);
 
-        for (ReceiptStatus status : List.of(ReceiptStatus.DRAFT, ReceiptStatus.FINALIZED, ReceiptStatus.SETTLED)) {
+        assertThatThrownBy(() -> receiptService.getReceipt(split.receiptId(), split.friendUserId()))
+                .isInstanceOf(ForbiddenOperationException.class);
+        assertThat(receiptService.listReceipts(split.friendUserId())).extracting(ReceiptResponse::id)
+                .containsExactly(ownReceipt.getId());
+        assertThat(receiptService.getReceipt(split.receiptId(), split.ownerId()).status()).isEqualTo("DRAFT");
+        assertThat(receiptService.listReceipts(split.ownerId())).extracting(ReceiptResponse::id)
+                .containsExactly(split.receiptId());
+
+        for (ReceiptStatus status : List.of(ReceiptStatus.FINALIZED, ReceiptStatus.SETTLED)) {
             if (status == ReceiptStatus.FINALIZED) {
                 receiptService.finalizeReceipt(split.receiptId(), split.ownerId());
             } else if (status == ReceiptStatus.SETTLED) {
@@ -432,12 +440,34 @@ class ReceiptSplitCalculationIntegrationTests {
     @Test
     void removingParticipantRevokesViewAndListAccess() {
         TwoParticipantReceipt split = twoParticipantReceipt("revoked-access", new BigDecimal("10.00"));
+        receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
+                split.ownerParticipantId(), AllocationType.EXACT, new BigDecimal("10.00"));
+        receiptService.finalizeReceipt(split.receiptId(), split.ownerId());
         assertThat(receiptService.getReceipt(split.receiptId(), split.friendUserId()).id())
                 .isEqualTo(split.receiptId());
+        receiptService.reopenReceipt(split.receiptId(), split.ownerId());
         receiptService.removeParticipant(split.receiptId(), split.friendParticipantId(), split.ownerId());
+        receiptService.finalizeReceipt(split.receiptId(), split.ownerId());
         assertThatThrownBy(() -> receiptService.getReceipt(split.receiptId(), split.friendUserId()))
                 .isInstanceOf(ForbiddenOperationException.class);
         assertThat(receiptService.listReceipts(split.friendUserId())).isEmpty();
+    }
+
+    @Test
+    void reopeningHidesReceiptFromParticipantUntilFinalizedAgain() {
+        TwoParticipantReceipt split = twoParticipantReceipt("draft-privacy", new BigDecimal("10.00"));
+        addExactSplit(split);
+        receiptService.finalizeReceipt(split.receiptId(), split.ownerId());
+        assertThat(receiptService.getReceipt(split.receiptId(), split.friendUserId()).status()).isEqualTo("FINALIZED");
+        receiptService.reopenReceipt(split.receiptId(), split.ownerId());
+        assertThatThrownBy(() -> receiptService.getReceipt(split.receiptId(), split.friendUserId()))
+                .isInstanceOf(ForbiddenOperationException.class);
+        assertThat(receiptService.listReceipts(split.friendUserId())).isEmpty();
+        assertThat(receiptService.getReceipt(split.receiptId(), split.ownerId()).status()).isEqualTo("DRAFT");
+        receiptService.finalizeReceipt(split.receiptId(), split.ownerId());
+        assertThat(receiptService.getReceipt(split.receiptId(), split.friendUserId()).status()).isEqualTo("FINALIZED");
+        assertThat(receiptService.listReceipts(split.friendUserId())).extracting(ReceiptResponse::id)
+                .containsExactly(split.receiptId());
     }
 
     @Test
