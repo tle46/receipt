@@ -1201,7 +1201,7 @@
       ]
     },
     {
-      "name": "32 - Login with new password",
+      "name": "32 - Login by email with new password",
       "request": {
         "method": "POST",
         "auth": {
@@ -1214,10 +1214,10 @@
           }
         ],
         "url": "{{baseUrl}}/api/auth/login",
-        "description": "",
+        "description": "The username field also accepts an email address. This verifies email lookup, case folding and surrounding whitespace after a password change.",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+          "raw": "{\n  \"username\": \"{{uppercaseEmail}}\",\n  \"password\": \"{{newPassword}}\"\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -1226,6 +1226,15 @@
         }
       },
       "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('uppercaseEmail', '  '+pm.collectionVariables.get('email').toUpperCase()+'  ');"
+            ]
+          }
+        },
         {
           "listen": "test",
           "script": {
