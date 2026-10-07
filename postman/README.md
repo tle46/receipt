@@ -8,14 +8,14 @@ Use a disposable development database. Account tests create records and deactiva
 
 Import [accounts-auth.postman_collection.json](accounts-auth.postman_collection.json) and run the **entire collection in order**, with one iteration. No Google or SMTP credentials are required. Each run generates a unique username, email, and passwords, and captures its own IDs and tokens.
 
-Validation: the core collection passed 43 requests and 76 assertions through Newman against a temporary Spring Boot server with an isolated H2 database. Google and email collections were checked for valid JSON and script syntax; live provider flows require the manual steps below.
+The core suite contains 43 requests with 76 assertions. It covers both username and email sign-in. Google and email recovery require the manual provider steps below.
 
 The collection verifies:
 
 - Anonymous access denial, guest creation, and guest profile retrieval.
 - Password validation and duplicate registration rejection.
 - Guest registration preserves the user ID and an existing receipt, and revokes guest credentials.
-- Case-insensitive username login and incorrect-password rejection.
+- Case-insensitive username and email login, and incorrect-password rejection.
 - Refresh rotation and rejection of a consumed refresh token.
 - Single-session logout leaves another session usable; logout-all revokes both sessions.
 - Display-name updates persist.
