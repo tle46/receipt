@@ -20,17 +20,20 @@ class ApiContractIntegrationTests {
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.webAppContextSetup(context).build();
+        mvc = MockMvcBuilders.webAppContextSetup(context).apply(org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity()).build();
     }
 
     @Test
     void recordResponsesAndSharedItemRequestsPreserveTheJsonContract() throws Exception {
-        var userResult = mvc.perform(post("/api/users").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"contract-owner\",\"email\":\"contract-owner@example.com\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.username").value("contract-owner"))
-                .andExpect(jsonPath("$.displayName").value("contract-owner"))
-                .andExpect(jsonPath("$.status").value("ACTIVE")).andReturn();
-        Number userId = JsonPath.read(userResult.getResponse().getContentAsString(), "$.id");
+        var userResult = mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"contract_owner\",\"email\":\"contract-owner@example.com\",\"password\":\"a strong test password\",\"displayName\":\"contract-owner\"}"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.user.username").value("contract_owner"))
+                .andExpect(jsonPath("$.user.displayName").value("contract-owner"))
+                .andExpect(jsonPath("$.user.status").value("ACTIVE")).andReturn();
+        Number userId = JsonPath.read(userResult.getResponse().getContentAsString(), "$.user.id");
+        String access = JsonPath.read(userResult.getResponse().getContentAsString(), "$.accessToken");
+        mvc = MockMvcBuilders.webAppContextSetup(context).apply(org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity())
+                .defaultRequest(get("/").header("Authorization", "Bearer " + access)).build();
         var created = mvc.perform(post("/api/receipts").param("userId", userId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"merchantName\":\"Cafe\",\"currency\":\"USD\",\"discount\":0,\"tax\":0,\"fee\":0,\"tip\":0,\"total\":10,\"items\":[{\"name\":\"Dinner\",\"quantity\":1,\"unitPrice\":10,\"total\":10}]}"))

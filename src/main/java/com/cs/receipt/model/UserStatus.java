@@ -1,7 +1,7 @@
 package com.cs.receipt.model;
 
 public enum UserStatus {
-    ACTIVE,
+    ACTIVE, GUEST, DISABLED,
     INVITED,
     PLACEHOLDER
 }

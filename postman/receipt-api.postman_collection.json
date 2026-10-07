@@ -2,236 +2,659 @@
   "info": {
     "_postman_id": "9fcd5cdd-4b84-4c7f-9e30-receipt-api-tests",
     "name": "Receipt API - Ordered Integration Tests",
-    "description": "Run requests top-to-bottom. The collection creates unique users and stores all generated IDs as collection variables.",
+    "description": "Run top-to-bottom against a development database. Creates owner and participant guest sessions, stores IDs and tokens, and authenticates receipt requests as the owner. Re-run from the start if the access token expires.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8080" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    }
   ],
   "item": [
     {
-      "name": "01 - Create owner",
-      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"username\": \"{{ownerUsername}}\",\n  \"email\": \"{{ownerEmail}}\"\n}" }, "url": "{{baseUrl}}/api/users" },
+      "name": "01 - Create owner guest session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
+        "url": "{{baseUrl}}/api/auth/guest",
+        "auth": {
+          "type": "noauth"
+        }
+      },
       "event": [
-        { "listen": "prerequest", "script": { "exec": [
-          "const suffix = Date.now();",
-          "pm.collectionVariables.set('ownerUsername', `owner_${suffix}`);",
-          "pm.collectionVariables.set('ownerEmail', `owner_${suffix}@example.com`);"
-        ] } },
-        { "listen": "test", "script": { "exec": [
-        "pm.test('Owner is created', () => pm.response.to.have.status(200));",
-        "pm.collectionVariables.set('ownerId', pm.response.json().id);"
-        ] } }
+        {
+          "script": {
+            "exec": [
+              "pm.test('Guest created', () => pm.response.to.have.status(201));",
+              "const session = pm.response.json();",
+              "pm.collectionVariables.set('ownerId', session.user.id);",
+              "pm.collectionVariables.set('ownerAccessToken', session.accessToken);"
+            ]
+          },
+          "listen": "test"
+        }
       ]
     },
     {
-      "name": "02 - Create friend",
-      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"username\": \"{{friendUsername}}\",\n  \"email\": \"{{friendEmail}}\"\n}" }, "url": "{{baseUrl}}/api/users" },
+      "name": "02 - Create friend guest session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
+        "url": "{{baseUrl}}/api/auth/guest",
+        "auth": {
+          "type": "noauth"
+        }
+      },
       "event": [
-        { "listen": "prerequest", "script": { "exec": [
-          "const suffix = Date.now();",
-          "pm.collectionVariables.set('friendUsername', `friend_${suffix}`);",
-          "pm.collectionVariables.set('friendEmail', `friend_${suffix}@example.com`);"
-        ] } },
-        { "listen": "test", "script": { "exec": [
-        "pm.test('Friend is created', () => pm.response.to.have.status(200));",
-        "pm.collectionVariables.set('friendId', pm.response.json().id);"
-        ] } }
+        {
+          "script": {
+            "exec": [
+              "pm.test('Guest created', () => pm.response.to.have.status(201));",
+              "const session = pm.response.json();",
+              "pm.collectionVariables.set('friendId', session.user.id);",
+              "pm.collectionVariables.set('friendAccessToken', session.accessToken);"
+            ]
+          },
+          "listen": "test"
+        }
       ]
     },
     {
       "name": "03 - Create receipt",
-      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"merchantName\": \"Test Bistro\",\n  \"purchaseDate\": \"2026-09-30T18:00:00\",\n  \"discount\": 0.00,\n  \"tax\": 0.00,\n  \"fee\": 0.00,\n  \"tip\": 0.00,\n  \"currency\": \"USD\",\n  \"total\": 10.00,\n  \"items\": [{ \"name\": \"Pizza\", \"quantity\": 1, \"unitPrice\": 10.00, \"total\": 10.00 }]\n}" }, "url": "{{baseUrl}}/api/receipts?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Receipt is created', () => pm.response.to.have.status(201));",
-        "const body = pm.response.json();",
-        "pm.collectionVariables.set('receiptId', body.id);",
-        "pm.collectionVariables.set('pizzaItemId', body.items[0].id);",
-        "pm.collectionVariables.set('ownerParticipantId', body.participants[0].id);"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"merchantName\": \"Test Bistro\",\n  \"purchaseDate\": \"2026-09-30T18:00:00\",\n  \"discount\": 0.00,\n  \"tax\": 0.00,\n  \"fee\": 0.00,\n  \"tip\": 0.00,\n  \"currency\": \"USD\",\n  \"total\": 10.00,\n  \"items\": [{ \"name\": \"Pizza\", \"quantity\": 1, \"unitPrice\": 10.00, \"total\": 10.00 }]\n}"
+        },
+        "url": "{{baseUrl}}/api/receipts?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Receipt is created', () => pm.response.to.have.status(201));",
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set('receiptId', body.id);",
+              "pm.collectionVariables.set('pizzaItemId', body.items[0].id);",
+              "pm.collectionVariables.set('ownerParticipantId', body.participants[0].id);"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "04 - Add friend as participant",
-      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{ \"userId\": {{friendId}} }" }, "url": "{{baseUrl}}/api/receipts/{{receiptId}}/participants?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Participant is added', () => pm.response.to.have.status(201));",
-        "pm.collectionVariables.set('friendParticipantId', pm.response.json().id);"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"userId\": {{friendId}} }"
+        },
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/participants?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Participant is added', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('friendParticipantId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "05 - Allocate pizza: owner exact $6",
-      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{ \"participantId\": {{ownerParticipantId}}, \"allocationType\": \"EXACT\", \"inputValue\": 6.00 }" }, "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}/allocations?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Owner allocation is created', () => pm.response.to.have.status(201));",
-        "pm.collectionVariables.set('ownerPizzaAllocationId', pm.response.json().id);"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"participantId\": {{ownerParticipantId}}, \"allocationType\": \"EXACT\", \"inputValue\": 6.00 }"
+        },
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}/allocations?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Owner allocation is created', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('ownerPizzaAllocationId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "06 - Allocate pizza: friend exact $4",
-      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{ \"participantId\": {{friendParticipantId}}, \"allocationType\": \"EXACT\", \"inputValue\": 4.00 }" }, "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}/allocations?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Friend allocation is created', () => pm.response.to.have.status(201));",
-        "pm.collectionVariables.set('friendPizzaAllocationId', pm.response.json().id);"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"participantId\": {{friendParticipantId}}, \"allocationType\": \"EXACT\", \"inputValue\": 4.00 }"
+        },
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}/allocations?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Friend allocation is created', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('friendPizzaAllocationId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "07 - Calculate split",
-      "request": { "method": "POST", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/calculate?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Split is calculated', () => pm.response.to.have.status(200));",
-        "const body = pm.response.json();",
-        "pm.test('Participants owe $6 and $4', () => {",
-        "  pm.expect(body.participants.map(p => Number(p.finalOwedAmount)).sort()).to.eql([4, 6]);",
-        "});"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/calculate?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Split is calculated', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test('Participants owe $6 and $4', () => {",
+              "  pm.expect(body.participants.map(p => Number(p.finalOwedAmount)).sort()).to.eql([4, 6]);",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "08 - Get detailed receipt",
-      "request": { "method": "GET", "url": "{{baseUrl}}/api/receipts/{{receiptId}}?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Detailed receipt is returned', () => pm.response.to.have.status(200));",
-        "const body = pm.response.json();",
-        "pm.test('Response contains participants and allocations', () => {",
-        "  pm.expect(body.participants).to.have.length(2);",
-        "  pm.expect(body.items[0].allocations).to.have.length(2);",
-        "});"
-      ] } }]
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Detailed receipt is returned', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test('Response contains participants and allocations', () => {",
+              "  pm.expect(body.participants).to.have.length(2);",
+              "  pm.expect(body.items[0].allocations).to.have.length(2);",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "09 - List owner receipts",
-      "request": { "method": "GET", "url": "{{baseUrl}}/api/receipts?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Receipt list is returned', () => pm.response.to.have.status(200));",
-        "pm.test('List contains this receipt', () => pm.expect(pm.response.json().map(r => r.id)).to.include(Number(pm.collectionVariables.get('receiptId'))));"
-      ] } }]
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/receipts?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Receipt list is returned', () => pm.response.to.have.status(200));",
+              "pm.test('List contains this receipt', () => pm.expect(pm.response.json().map(r => r.id)).to.include(Number(pm.collectionVariables.get('receiptId'))));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10 - Finalize receipt",
-      "request": { "method": "POST", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/finalize?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Receipt is finalized', () => pm.response.to.have.status(200));",
-        "pm.test('Status is FINALIZED', () => pm.expect(pm.response.json().status).to.eql('FINALIZED'));"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/finalize?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Receipt is finalized', () => pm.response.to.have.status(200));",
+              "pm.test('Status is FINALIZED', () => pm.expect(pm.response.json().status).to.eql('FINALIZED'));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "11 - Confirm finalized receipt cannot be edited",
-      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{ \"name\": \"Dessert\", \"quantity\": 1, \"unitPrice\": 4.00 }" }, "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Finalized receipt rejects edits', () => pm.response.to.have.status(400));",
-        "pm.test('Error uses the standard contract', () => pm.expect(pm.response.json().message).to.include('Only draft receipts'));"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"name\": \"Dessert\", \"quantity\": 1, \"unitPrice\": 4.00 }"
+        },
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Finalized receipt rejects edits', () => pm.response.to.have.status(400));",
+              "pm.test('Error uses the standard contract', () => pm.expect(pm.response.json().message).to.include('Only draft receipts'));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "12 - Reopen receipt",
-      "request": { "method": "POST", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/reopen?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Receipt is reopened', () => pm.response.to.have.status(200));",
-        "pm.test('Status is DRAFT', () => pm.expect(pm.response.json().status).to.eql('DRAFT'));"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/reopen?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Receipt is reopened', () => pm.response.to.have.status(200));",
+              "pm.test('Status is DRAFT', () => pm.expect(pm.response.json().status).to.eql('DRAFT'));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "13 - Update pizza item to $11",
-      "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{ \"name\": \"Pizza\", \"quantity\": 1, \"unitPrice\": 11.00 }" }, "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Item is updated', () => pm.response.to.have.status(200));",
-        "pm.test('Item total is server-calculated', () => pm.expect(Number(pm.response.json().total)).to.eql(11));"
-      ] } }]
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"name\": \"Pizza\", \"quantity\": 1, \"unitPrice\": 11.00 }"
+        },
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Item is updated', () => pm.response.to.have.status(200));",
+              "pm.test('Item total is server-calculated', () => pm.expect(Number(pm.response.json().total)).to.eql(11));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "14 - Update friend pizza allocation to $5",
-      "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{ \"allocationType\": \"EXACT\", \"inputValue\": 5.00 }" }, "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}/allocations/{{friendPizzaAllocationId}}?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Allocation is updated', () => pm.response.to.have.status(200));"] } }]
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"allocationType\": \"EXACT\", \"inputValue\": 5.00 }"
+        },
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}/allocations/{{friendPizzaAllocationId}}?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Allocation is updated', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "15 - Add dessert item",
-      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{ \"name\": \"Dessert\", \"quantity\": 1, \"unitPrice\": 4.00 }" }, "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Item is added', () => pm.response.to.have.status(201));",
-        "const body = pm.response.json();",
-        "pm.test('Added item response includes an ID', () => pm.expect(body.id).to.not.be.null);",
-        "pm.collectionVariables.set('dessertItemId', body.id);"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"name\": \"Dessert\", \"quantity\": 1, \"unitPrice\": 4.00 }"
+        },
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Item is added', () => pm.response.to.have.status(201));",
+              "const body = pm.response.json();",
+              "pm.test('Added item response includes an ID', () => pm.expect(body.id).to.not.be.null);",
+              "pm.collectionVariables.set('dessertItemId', body.id);"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "16 - Update receipt details and tax",
-      "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"merchantName\": \"Updated Test Bistro\",\n  \"purchaseDate\": \"2026-09-30T19:00:00\",\n  \"discount\": 0.00,\n  \"tax\": 1.00,\n  \"fee\": 0.00,\n  \"tip\": 0.00,\n  \"currency\": \"USD\"\n}" }, "url": "{{baseUrl}}/api/receipts/{{receiptId}}?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Receipt details are updated', () => pm.response.to.have.status(200));",
-        "pm.test('Total is recalculated to $16', () => pm.expect(Number(pm.response.json().total)).to.eql(16));"
-      ] } }]
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"merchantName\": \"Updated Test Bistro\",\n  \"purchaseDate\": \"2026-09-30T19:00:00\",\n  \"discount\": 0.00,\n  \"tax\": 1.00,\n  \"fee\": 0.00,\n  \"tip\": 0.00,\n  \"currency\": \"USD\"\n}"
+        },
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Receipt details are updated', () => pm.response.to.have.status(200));",
+              "pm.test('Total is recalculated to $16', () => pm.expect(Number(pm.response.json().total)).to.eql(16));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "17 - Confirm unallocated new item blocks calculation",
-      "request": { "method": "POST", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/calculate?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Calculation rejects an unallocated item', () => pm.response.to.have.status(400));",
-        "pm.test('Error identifies the allocation problem', () => pm.expect(pm.response.json().message).to.include('must have at least one allocation'));"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/calculate?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Calculation rejects an unallocated item', () => pm.response.to.have.status(400));",
+              "pm.test('Error identifies the allocation problem', () => pm.expect(pm.response.json().message).to.include('must have at least one allocation'));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "18 - Allocate dessert to owner",
-      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{ \"participantId\": {{ownerParticipantId}}, \"allocationType\": \"EXACT\", \"inputValue\": 4.00 }" }, "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{dessertItemId}}/allocations?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Dessert allocation is created', () => pm.response.to.have.status(201));"] } }]
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"participantId\": {{ownerParticipantId}}, \"allocationType\": \"EXACT\", \"inputValue\": 4.00 }"
+        },
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{dessertItemId}}/allocations?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Dessert allocation is created', () => pm.response.to.have.status(201));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "19 - Calculate revised split",
-      "request": { "method": "POST", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/calculate?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Revised split is calculated', () => pm.response.to.have.status(200));",
-        "pm.test('Participant totals equal receipt total', () => {",
-        "  const total = pm.response.json().participants.reduce((sum, p) => sum + Number(p.finalOwedAmount), 0);",
-        "  pm.expect(total).to.eql(16);",
-        "});"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/calculate?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Revised split is calculated', () => pm.response.to.have.status(200));",
+              "pm.test('Participant totals equal receipt total', () => {",
+              "  const total = pm.response.json().participants.reduce((sum, p) => sum + Number(p.finalOwedAmount), 0);",
+              "  pm.expect(total).to.eql(16);",
+              "});"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "20 - Delete friend's pizza allocation",
-      "request": { "method": "DELETE", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}/allocations/{{friendPizzaAllocationId}}?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Allocation is deleted', () => pm.response.to.have.status(204));"] } }]
+      "request": {
+        "method": "DELETE",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}/allocations/{{friendPizzaAllocationId}}?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Allocation is deleted', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "21 - Remove friend participant",
-      "request": { "method": "DELETE", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/participants/{{friendParticipantId}}?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Participant is removed after allocations are removed', () => pm.response.to.have.status(204));"] } }]
+      "request": {
+        "method": "DELETE",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/participants/{{friendParticipantId}}?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Participant is removed after allocations are removed', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "22 - Update remaining pizza allocation to $11",
-      "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{ \"allocationType\": \"EXACT\", \"inputValue\": 11.00 }" }, "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}/allocations/{{ownerPizzaAllocationId}}?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Remaining allocation is updated', () => pm.response.to.have.status(200));"] } }]
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"allocationType\": \"EXACT\", \"inputValue\": 11.00 }"
+        },
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{pizzaItemId}}/allocations/{{ownerPizzaAllocationId}}?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Remaining allocation is updated', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "23 - Delete dessert item",
-      "request": { "method": "DELETE", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{dessertItemId}}?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Dessert item is deleted', () => pm.response.to.have.status(204));"] } }]
+      "request": {
+        "method": "DELETE",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/items/{{dessertItemId}}?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Dessert item is deleted', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "24 - Calculate final one-person split",
-      "request": { "method": "POST", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/calculate?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Final split is calculated', () => pm.response.to.have.status(200));",
-        "pm.test('Owner owes $12 including tax', () => pm.expect(Number(pm.response.json().participants[0].finalOwedAmount)).to.eql(12));"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/calculate?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Final split is calculated', () => pm.response.to.have.status(200));",
+              "pm.test('Owner owes $12 including tax', () => pm.expect(Number(pm.response.json().participants[0].finalOwedAmount)).to.eql(12));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "25 - Finalize receipt again",
-      "request": { "method": "POST", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/finalize?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": ["pm.test('Receipt is finalized again', () => pm.response.to.have.status(200));"] } }]
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/finalize?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Receipt is finalized again', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "26 - Settle receipt",
-      "request": { "method": "POST", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/settle?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Receipt is settled', () => pm.response.to.have.status(200));",
-        "pm.test('Status is SETTLED', () => pm.expect(pm.response.json().status).to.eql('SETTLED'));"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/settle?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Receipt is settled', () => pm.response.to.have.status(200));",
+              "pm.test('Status is SETTLED', () => pm.expect(pm.response.json().status).to.eql('SETTLED'));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "27 - Confirm settled receipt cannot reopen",
-      "request": { "method": "POST", "url": "{{baseUrl}}/api/receipts/{{receiptId}}/reopen?userId={{ownerId}}" },
-      "event": [{ "listen": "test", "script": { "exec": [
-        "pm.test('Settled receipt cannot reopen', () => pm.response.to.have.status(400));",
-        "pm.test('Error uses the standard contract', () => pm.expect(pm.response.json().message).to.include('Only finalized receipts'));"
-      ] } }]
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}/reopen?userId={{ownerId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Settled receipt cannot reopen', () => pm.response.to.have.status(400));",
+              "pm.test('Error uses the standard contract', () => pm.expect(pm.response.json().message).to.include('Only finalized receipts'));"
+            ]
+          }
+        }
+      ]
     }
-  ]
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "type": "string",
+        "value": "{{ownerAccessToken}}",
+        "key": "token"
+      }
+    ]
+  }
 }

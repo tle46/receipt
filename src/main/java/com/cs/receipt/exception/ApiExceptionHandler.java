@@ -74,6 +74,11 @@ public class ApiExceptionHandler {
         return response(HttpStatus.CONFLICT, "The request conflicts with existing data", request, Map.of());
     }
 
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ApiErrorResponse> handleStatus(org.springframework.web.server.ResponseStatusException exception, HttpServletRequest request) {
+        return response(HttpStatus.valueOf(exception.getStatusCode().value()), exception.getReason(), request, Map.of());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleUnexpected(Exception exception, HttpServletRequest request) {
         return response(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred", request, Map.of());

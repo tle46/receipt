@@ -1,0 +1,1617 @@
+{
+  "info": {
+    "name": "Receipt API - Accounts and Authentication",
+    "description": "Run the entire collection top-to-bottom against a disposable development database. No Google or SMTP configuration needed. Generates unique credentials, upgrades a guest without losing its receipt, tests multiple sessions, rotation, revocation, contacts and actor authorization, then deactivates the account. Requests are paced 2.2 seconds apart to respect auth limits; allow about 2 minutes. Do not run concurrently with other auth collections. Tests create persistent disabled accounts and placeholder contacts; deactivation is not erasure. No secrets are shipped in this file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Pace requests below the API's 30 authentication requests/minute per IP.",
+          "setTimeout(() => {}, 2200);"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Reject unauthenticated profile",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const suffix=Date.now().toString(36)+Math.random().toString(36).slice(2,7);",
+              "pm.collectionVariables.set('username', 'pm_'+suffix);",
+              "pm.collectionVariables.set('email', 'pm_'+suffix+'@example.com');",
+              "pm.collectionVariables.set('password', 'Initial!'+pm.variables.replaceIn('{{$guid}}'));",
+              "pm.collectionVariables.set('newPassword', 'Changed!'+pm.variables.replaceIn('{{$guid}}'));",
+              "['accessToken','accessRefresh','guestToken','guestRefresh','secondToken','secondRefresh','oldRefresh','userId','receiptId','friendId'].forEach(k=>pm.collectionVariables.unset(k));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Create guest",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/guest",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+              "pm.test(\"Credentials have the expected shape\", () => { const s=pm.response.json(); pm.expect(s.accessToken.split('.')).to.have.lengthOf(3); pm.expect(s.refreshToken).to.be.a('string').and.not.empty; pm.expect(s.tokenType).to.eql('Bearer'); pm.expect(s.expiresIn).to.eql(900); pm.expect(s.user.id).to.be.a('number'); });",
+              "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });",
+              "if (pm.response.code === 201) {",
+              "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);",
+              "pm.collectionVariables.set('accessRefresh', pm.response.json().refreshToken);",
+              "pm.collectionVariables.set('userId', pm.response.json().user.id);",
+              "pm.collectionVariables.set('guestToken', pm.response.json().accessToken);",
+              "pm.collectionVariables.set('guestRefresh', pm.response.json().refreshToken);",
+              "}",
+              "pm.test(\"user.status\", () => { pm.expect(pm.response.json().user.status).to.eql('GUEST'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Read guest profile",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"id\", () => { pm.expect(pm.response.json().id).to.eql(Number(pm.collectionVariables.get('userId'))); });",
+              "pm.test(\"status\", () => { pm.expect(pm.response.json().status).to.eql('GUEST'); });",
+              "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Create receipt as guest",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/receipts?userId={{userId}}",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"merchantName\": \"Auth retention test\",\n  \"currency\": \"USD\",\n  \"discount\": 0,\n  \"tax\": 0,\n  \"fee\": 0,\n  \"tip\": 0,\n  \"total\": 10,\n  \"items\": [\n    {\n      \"name\": \"Meal\",\n      \"quantity\": 1,\n      \"unitPrice\": 10,\n      \"total\": 10\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+              "pm.test(\"ownerId\", () => { pm.expect(pm.response.json().ownerId).to.eql(Number(pm.collectionVariables.get('userId'))); });",
+              "if(pm.response.code===201) pm.collectionVariables.set('receiptId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Reject weak password",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/register",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"short\",\n  \"email\": \"{{email}}\",\n  \"displayName\": \"Postman Account\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+              "pm.test(\"Password validation error\", () => { pm.expect(pm.response.json().fieldErrors).to.have.property('password'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Upgrade guest to password account",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/register",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\",\n  \"email\": \"{{email}}\",\n  \"displayName\": \"Postman Account\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+              "pm.test(\"user.id\", () => { pm.expect(pm.response.json().user.id).to.eql(Number(pm.collectionVariables.get('userId'))); });",
+              "pm.test(\"user.status\", () => { pm.expect(pm.response.json().user.status).to.eql('ACTIVE'); });",
+              "pm.test(\"user.passwordEnabled\", () => { pm.expect(pm.response.json().user.passwordEnabled).to.eql(true); });",
+              "pm.test(\"user.emailVerified\", () => { pm.expect(pm.response.json().user.emailVerified).to.eql(false); });",
+              "pm.test(\"Credentials have the expected shape\", () => { const s=pm.response.json(); pm.expect(s.accessToken.split('.')).to.have.lengthOf(3); pm.expect(s.refreshToken).to.be.a('string').and.not.empty; pm.expect(s.tokenType).to.eql('Bearer'); pm.expect(s.expiresIn).to.eql(900); pm.expect(s.user.id).to.be.a('number'); });",
+              "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });",
+              "if (pm.response.code === 201) {",
+              "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);",
+              "pm.collectionVariables.set('accessRefresh', pm.response.json().refreshToken);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Reject revoked guest access",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{guestToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 - Reject revoked guest refresh",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/refresh",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{guestRefresh}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 - Receipt survives guest upgrade",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}?userId={{userId}}",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"ownerId\", () => { pm.expect(pm.response.json().ownerId).to.eql(Number(pm.collectionVariables.get('userId'))); });",
+              "pm.test(\"merchantName\", () => { pm.expect(pm.response.json().merchantName).to.eql('Auth retention test'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 - Reject duplicate registration",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/register",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\",\n  \"email\": \"{{email}}\",\n  \"displayName\": \"Postman Account\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 409', () => pm.response.to.have.status(409));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 - Reject wrong password",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"Incorrect password!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 - Login with uppercase username in another session",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{uppercaseUsername}}\",\n  \"password\": \"{{password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('uppercaseUsername', pm.collectionVariables.get('username').toUpperCase());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"user.id\", () => { pm.expect(pm.response.json().user.id).to.eql(Number(pm.collectionVariables.get('userId'))); });",
+              "pm.test(\"Credentials have the expected shape\", () => { const s=pm.response.json(); pm.expect(s.accessToken.split('.')).to.have.lengthOf(3); pm.expect(s.refreshToken).to.be.a('string').and.not.empty; pm.expect(s.tokenType).to.eql('Bearer'); pm.expect(s.expiresIn).to.eql(900); pm.expect(s.user.id).to.be.a('number'); });",
+              "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });",
+              "if (pm.response.code === 200) {",
+              "pm.collectionVariables.set('secondToken', pm.response.json().accessToken);",
+              "pm.collectionVariables.set('secondRefresh', pm.response.json().refreshToken);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 - Rotate second session refresh token",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/refresh",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{secondRefresh}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('oldRefresh', pm.collectionVariables.get('secondRefresh'));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"Refresh token rotated\", () => { pm.expect(pm.response.json().refreshToken).not.to.eql(pm.collectionVariables.get('oldRefresh')); });",
+              "pm.test(\"Credentials have the expected shape\", () => { const s=pm.response.json(); pm.expect(s.accessToken.split('.')).to.have.lengthOf(3); pm.expect(s.refreshToken).to.be.a('string').and.not.empty; pm.expect(s.tokenType).to.eql('Bearer'); pm.expect(s.expiresIn).to.eql(900); pm.expect(s.user.id).to.be.a('number'); });",
+              "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });",
+              "if (pm.response.code === 200) {",
+              "pm.collectionVariables.set('secondToken', pm.response.json().accessToken);",
+              "pm.collectionVariables.set('secondRefresh', pm.response.json().refreshToken);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14 - Reject used refresh token",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/refresh",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{oldRefresh}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 - Logout second session",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{secondToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/logout",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16 - Reject logged-out access token",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{secondToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17 - Reject logged-out refresh token",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/refresh",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{secondRefresh}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18 - Original session remains active",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"id\", () => { pm.expect(pm.response.json().id).to.eql(Number(pm.collectionVariables.get('userId'))); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "19 - Update display name",
+      "request": {
+        "method": "PUT",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"displayName\": \"Updated Postman Account\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"displayName\", () => { pm.expect(pm.response.json().displayName).to.eql('Updated Postman Account'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "20 - Read persisted display name",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"displayName\", () => { pm.expect(pm.response.json().displayName).to.eql('Updated Postman Account'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "21 - Create another session for logout-all",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"Credentials have the expected shape\", () => { const s=pm.response.json(); pm.expect(s.accessToken.split('.')).to.have.lengthOf(3); pm.expect(s.refreshToken).to.be.a('string').and.not.empty; pm.expect(s.tokenType).to.eql('Bearer'); pm.expect(s.expiresIn).to.eql(900); pm.expect(s.user.id).to.be.a('number'); });",
+              "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });",
+              "if (pm.response.code === 200) {",
+              "pm.collectionVariables.set('secondToken', pm.response.json().accessToken);",
+              "pm.collectionVariables.set('secondRefresh', pm.response.json().refreshToken);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "22 - Logout all sessions",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/logout-all",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "23 - Original session revoked by logout-all",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "24 - Second session revoked by logout-all",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{secondToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "25 - Refresh revoked by logout-all",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/refresh",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{accessRefresh}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "26 - Login for password change",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"Credentials have the expected shape\", () => { const s=pm.response.json(); pm.expect(s.accessToken.split('.')).to.have.lengthOf(3); pm.expect(s.refreshToken).to.be.a('string').and.not.empty; pm.expect(s.tokenType).to.eql('Bearer'); pm.expect(s.expiresIn).to.eql(900); pm.expect(s.user.id).to.be.a('number'); });",
+              "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });",
+              "if (pm.response.code === 200) {",
+              "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);",
+              "pm.collectionVariables.set('accessRefresh', pm.response.json().refreshToken);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "27 - Reject password change with wrong current password",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/password/change",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"currentPassword\": \"Incorrect password!\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "28 - Change password",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/password/change",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"currentPassword\": \"{{password}}\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "29 - Password change revokes access",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "30 - Password change revokes refresh",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/refresh",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{accessRefresh}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "31 - Reject old password",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "32 - Login with new password",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"Credentials have the expected shape\", () => { const s=pm.response.json(); pm.expect(s.accessToken.split('.')).to.have.lengthOf(3); pm.expect(s.refreshToken).to.be.a('string').and.not.empty; pm.expect(s.tokenType).to.eql('Bearer'); pm.expect(s.expiresIn).to.eql(900); pm.expect(s.user.id).to.be.a('number'); });",
+              "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });",
+              "if (pm.response.code === 200) {",
+              "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);",
+              "pm.collectionVariables.set('accessRefresh', pm.response.json().refreshToken);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "33 - Add a name-only contact",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/users/{{userId}}/friends",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"displayName\": \"Postman Friend\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+              "pm.test(\"status\", () => { pm.expect(pm.response.json().status).to.eql('PLACEHOLDER'); });",
+              "if(pm.response.code===201) pm.collectionVariables.set('friendId', pm.response.json().userId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "34 - List own contacts",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/users/{{userId}}/friends",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test(\"New friend listed\", () => { pm.expect(pm.response.json().some(f=>f.userId===Number(pm.collectionVariables.get('friendId')))).to.eql(true); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "35 - Reject another actor receipt query",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/receipts?userId={{friendId}}",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "36 - Reject another actor contact path",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/users/{{friendId}}/friends",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "37 - Remove contact",
+      "request": {
+        "method": "DELETE",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/users/{{userId}}/friends/{{friendId}}",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "38 - Delete test receipt",
+      "request": {
+        "method": "DELETE",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/receipts/{{receiptId}}?userId={{userId}}",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "39 - Deactivate disposable account",
+      "request": {
+        "method": "DELETE",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "40 - Deactivation revokes access",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{accessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "41 - Deactivation revokes refresh",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/refresh",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{accessRefresh}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "42 - Disabled account cannot log in",
+      "request": {
+        "method": "POST",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/login",
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "43 - Reject malformed bearer token",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{invalidToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "header": [],
+        "url": "{{baseUrl}}/api/auth/me",
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('invalidToken', 'not-a-jwt');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -11,7 +11,10 @@ public class OpenApiConfig {
 
     @Bean
     OpenAPI receiptOpenApi() {
-        return new OpenAPI().info(new Info()
+        return new OpenAPI().components(new io.swagger.v3.oas.models.Components().addSecuritySchemes("bearerAuth",
+                new io.swagger.v3.oas.models.security.SecurityScheme().type(io.swagger.v3.oas.models.security.SecurityScheme.Type.HTTP)
+                        .scheme("bearer").bearerFormat("JWT")))
+                .addSecurityItem(new io.swagger.v3.oas.models.security.SecurityRequirement().addList("bearerAuth")).info(new Info()
                 .title("Receipt Split API")
                 .version("v1")
                 .description("API for creating receipts, assigning item costs to participants, "

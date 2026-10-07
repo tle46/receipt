@@ -1,0 +1,404 @@
+{
+  "info": {
+    "name": "Receipt API - Google Guest Upgrade (Manual)",
+    "description": "Requires configured GOOGLE_CLIENT_ID and a real Google Identity Services frontend flow. Run folder 01, obtain a nonce-bound ID token, then run folder 02 within five minutes. An access token from Google OAuth is not an ID token. Use a fresh test Google identity for an in-place guest upgrade; existing linked identities return 409 and are not merged. This collection does not deactivate the Google account, allowing later sign-in. No Google secrets or test bypasses are included.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "googleNonce",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "googleIdToken",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Pace requests below the API's 30 authentication requests/minute per IP.",
+          "setTimeout(() => {}, 2200);"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Guest and bound Google nonce",
+      "item": [
+        {
+          "name": "01 - Create guest for Google upgrade",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/guest",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "['accessToken','accessRefresh','guestToken','guestRefresh','googleNonce','googleIdToken','userId'].forEach(k=>pm.collectionVariables.unset(k));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.test(\"Credentials have the expected shape\", () => { const s=pm.response.json(); pm.expect(s.accessToken.split('.')).to.have.lengthOf(3); pm.expect(s.refreshToken).to.be.a('string').and.not.empty; pm.expect(s.tokenType).to.eql('Bearer'); pm.expect(s.expiresIn).to.eql(900); pm.expect(s.user.id).to.be.a('number'); });",
+                  "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });",
+                  "if (pm.response.code === 201) {",
+                  "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);",
+                  "pm.collectionVariables.set('accessRefresh', pm.response.json().refreshToken);",
+                  "pm.collectionVariables.set('userId', pm.response.json().user.id);",
+                  "pm.collectionVariables.set('guestToken', pm.response.json().accessToken);",
+                  "pm.collectionVariables.set('guestRefresh', pm.response.json().refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 - Request guest-bound nonce",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{guestToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/google/nonce",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"Nonce present\", () => { pm.expect(pm.response.json().nonce).to.be.a('string').and.not.empty; });",
+                  "if(pm.response.code===200) pm.collectionVariables.set('googleNonce', pm.response.json().nonce);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Exchange real Google credential (paste googleIdToken first)",
+      "description": "Within five minutes, obtain a Google Identity Services ID token for the backend client ID and the exact googleNonce. Paste it into googleIdToken. Use a Google test identity not already linked to another account. Run this folder only; it leaves the registered account active and logs it out.",
+      "item": [
+        {
+          "name": "03 - Reject invalid Google credential",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{guestToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/google",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"invalid-google-token\",\n  \"nonce\": \"{{googleNonce}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if(!pm.collectionVariables.get('googleIdToken')) throw new Error('Set googleIdToken in collection variables from the email before running this folder.');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 - Reject nonce exchange without bound guest",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/google",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"{{googleIdToken}}\",\n  \"nonce\": \"{{googleNonce}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 - Upgrade guest using Google",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{guestToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/google",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"{{googleIdToken}}\",\n  \"nonce\": \"{{googleNonce}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"user.id\", () => { pm.expect(pm.response.json().user.id).to.eql(Number(pm.collectionVariables.get('userId'))); });",
+                  "pm.test(\"user.status\", () => { pm.expect(pm.response.json().user.status).to.eql('ACTIVE'); });",
+                  "pm.test(\"user.googleLinked\", () => { pm.expect(pm.response.json().user.googleLinked).to.eql(true); });",
+                  "pm.test(\"Credentials have the expected shape\", () => { const s=pm.response.json(); pm.expect(s.accessToken.split('.')).to.have.lengthOf(3); pm.expect(s.refreshToken).to.be.a('string').and.not.empty; pm.expect(s.tokenType).to.eql('Bearer'); pm.expect(s.expiresIn).to.eql(900); pm.expect(s.user.id).to.be.a('number'); });",
+                  "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });",
+                  "if (pm.response.code === 200) {",
+                  "pm.collectionVariables.set('accessToken', pm.response.json().accessToken);",
+                  "pm.collectionVariables.set('accessRefresh', pm.response.json().refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 - Reject old guest session",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{guestToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/me",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 - Reject nonce replay",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/google",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"{{googleIdToken}}\",\n  \"nonce\": \"{{googleNonce}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 - Read Google-linked profile",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/me",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"googleLinked\", () => { pm.expect(pm.response.json().googleLinked).to.eql(true); });",
+                  "pm.test(\"Account does not expose secrets\", () => { const u=pm.response.json().user || pm.response.json(); ['password','passwordHash','googleSubject','refreshHash'].forEach(k => pm.expect(u).not.to.have.property(k)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 - Logout Google session",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/logout",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

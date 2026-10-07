@@ -28,6 +28,19 @@ public class User {
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
+    private String passwordHash;
+    @Column(unique = true)
+    private String googleSubject;
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean emailVerified;
+
+    public String getPasswordHash() { return passwordHash; }
+    public void setPasswordHash(String value) { passwordHash = value; }
+    public String getGoogleSubject() { return googleSubject; }
+    public void setGoogleSubject(String value) { googleSubject = value; }
+    public boolean isEmailVerified() { return emailVerified; }
+    public void setEmailVerified(boolean value) { emailVerified = value; }
+
     public User() {
     }
 
