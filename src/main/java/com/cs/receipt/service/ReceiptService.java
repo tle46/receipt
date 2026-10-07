@@ -153,7 +153,7 @@ public class ReceiptService {
         if (!userRepository.existsById(userId)) {
             throw new ResourceNotFoundException("User not found");
         }
-        return receiptRepository.findDistinctByOwnerIdOrParticipantsUserId(userId, userId).stream()
+        return receiptRepository.findVisibleToUser(userId, List.of(ReceiptStatus.FINALIZED, ReceiptStatus.SETTLED)).stream()
                 .map(ReceiptResponse::fromReceipt)
                 .toList();
     }
@@ -564,8 +564,9 @@ public class ReceiptService {
                 .orElseThrow(() -> new ResourceNotFoundException("Receipt not found"));
         boolean isParticipant = receipt.getParticipants().stream()
                 .anyMatch(participant -> participant.getUser().getId().equals(userId));
-        if (!receipt.getOwner().getId().equals(userId) && !isParticipant) {
-            throw new ForbiddenOperationException("Only the receipt owner or a participant can view this receipt");
+        boolean isShared = receipt.getStatus() == ReceiptStatus.FINALIZED || receipt.getStatus() == ReceiptStatus.SETTLED;
+        if (!receipt.getOwner().getId().equals(userId) && !(isParticipant && isShared)) {
+            throw new ForbiddenOperationException("Only the owner can view drafts; participants can view finalized or settled receipts");
         }
         return receipt;
     }
