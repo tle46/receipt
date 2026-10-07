@@ -145,4 +145,27 @@ class AuthenticationIntegrationTests {
         mvc.perform(get("/api/receipts").param("userId",id.toString(),"999999").header("Authorization","Bearer "+access))
                 .andExpect(status().isForbidden());
     }
-}
+    @Test void acceptsEmailOrUsernameWithCaseAndWhitespaceNormalization() throws Exception {
+        String username=name();
+        String email="long.email.address.for.login."+username+"@example.com";
+        String account=postJson("register",registration(username).replace(username+"@example.com",email),null,201);
+        Number id=JsonPath.read(account,"$.user.id");
+        for(String identifier : new String[]{"  "+email.toUpperCase(java.util.Locale.ROOT)+"  ", " "+username.toUpperCase(java.util.Locale.ROOT)+" "}) {
+            String session=postJson("login","{\"username\":\""+identifier+"\",\"password\":\"correct horse battery\"}",null,200);
+            assertThat((Number)JsonPath.read(session,"$.user.id")).isEqualTo(id);
+        }
+        postJson("login","{\"username\":\""+email+"\",\"password\":\"incorrect password\"}",null,401);
+        postJson("login","{\"username\":\"missing-"+email+"\",\"password\":\"incorrect password\"}",null,401);
+        mvc.perform(delete("/api/auth/me").header("Authorization","Bearer "+field(account,"accessToken")))
+                .andExpect(status().isNoContent());
+        postJson("login","{\"username\":\""+email+"\",\"password\":\"correct horse battery\"}",null,401);
+    }
+    @Test void emailAndUsernameShareLoginAttemptLimit() throws Exception {
+        String username=name();
+        postJson("register",registration(username),null,201);
+        for(int i=0;i<10;i++) {
+            String identifier=i%2==0 ? username : username+"@example.com";
+            postJson("login","{\"username\":\""+identifier+"\",\"password\":\"incorrect password\"}",null,401);
+        }
+        postJson("login","{\"username\":\""+username+"@example.com\",\"password\":\"correct horse battery\"}",null,429);
+    }}

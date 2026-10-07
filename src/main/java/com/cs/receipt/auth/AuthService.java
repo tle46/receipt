@@ -74,8 +74,12 @@ public class AuthService {
         return passwords.encode(password);
     }
     public Credentials login(AuthRequests.Login request) {
-        limit("login:" + request.username().toLowerCase(Locale.ROOT), 10);
-        User u=users.findByUsernameIgnoreCase(request.username()).orElse(null);
+        String identifier = request.username().trim().toLowerCase(Locale.ROOT);
+        // Registration usernames cannot contain @, so email lookup is unambiguous.
+        User u = (identifier.contains("@") ? users.findByEmailIgnoreCase(identifier)
+                : users.findByUsernameIgnoreCase(identifier)).orElse(null);
+        // Both identifiers share the same attempt budget for an existing account.
+        limit(u == null ? "login:identifier:" + identifier : "login:account:" + u.getId(), 10);
         boolean valid=passwords.matches(request.password(), u==null || u.getPasswordHash()==null ? dummyHash : u.getPasswordHash());
         if (!valid || u==null || u.getPasswordHash()==null || u.getStatus()!=UserStatus.ACTIVE) throw unauthorized();
         return issue(u);

@@ -8,7 +8,7 @@ public final class AuthRequests {
                            @NotBlank @Size(min=12, max=72) String password,
                            @NotBlank @Email @Size(max=254) String email,
                            @NotBlank @Size(max=80) String displayName) {}
-    public record Login(@NotBlank @Size(max=32) String username, @NotBlank @Size(max=72) String password) {}
+    public record Login(@NotBlank @Size(max=254) String username, @NotBlank @Size(max=72) String password) {}
     public record Refresh(@NotBlank @Size(max=128) String refreshToken) {}
     public record Google(@NotBlank @Size(max=8192) String idToken, @NotBlank @Size(max=128) String nonce) {}
     public record EmailRequest(@NotBlank @Email @Size(max=254) String email) {}
