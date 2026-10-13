@@ -196,4 +196,15 @@ public class ReceiptController {
         return ReceiptResponse.fromReceipt(receiptService.settleReceipt(receiptId, userId));
     }
 
+    @PostMapping("/{receiptId}/participants/{participantId}/settle")
+    public ReceiptResponse settleParticipant(@PathVariable Long receiptId, @PathVariable Long participantId,
+                                             @RequestParam Long userId) {
+        return ReceiptResponse.fromReceipt(receiptService.settleParticipant(receiptId, participantId, userId));
+    }
+
+    @PostMapping("/{receiptId}/unsettle")
+    public ReceiptResponse unsettleReceipt(@PathVariable Long receiptId, @RequestParam Long userId) {
+        return ReceiptResponse.fromReceipt(receiptService.unsettleReceipt(receiptId, userId));
+    }
+
 }

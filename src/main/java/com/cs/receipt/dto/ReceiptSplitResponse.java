@@ -17,7 +17,7 @@ public record ReceiptSplitResponse(
         List<ParticipantSplit> participants = receipt.getParticipants().stream()
                 .map(participant -> new ParticipantSplit(
                         participant.getId(), participant.getUser().getId(),
-                        participant.getUser().getUsername(), participant.getFinalOwedAmount()))
+                        participant.getUser().getUsername(), participant.getFinalOwedAmount(), participant.isSettled(), participant.getUser().getDisplayName()))
                 .toList();
         List<ItemAllocationSplit> allocations = receipt.getItems().stream()
                 .flatMap(item -> item.getAllocations().stream())
@@ -30,7 +30,7 @@ public record ReceiptSplitResponse(
                 receipt.getTotal(), participants, allocations);
     }
 
-    public record ParticipantSplit(Long participantId, Long userId, String username, BigDecimal finalOwedAmount) { }
+    public record ParticipantSplit(Long participantId, Long userId, String username, BigDecimal finalOwedAmount, boolean settled, String displayName) { }
 
     public record ItemAllocationSplit(Long allocationId, Long itemId, String itemName, Long participantId,
                                       String allocationType, BigDecimal inputValue, BigDecimal finalAmount) { }

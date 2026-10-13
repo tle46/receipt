@@ -2,6 +2,9 @@ package com.cs.receipt.controller;
 
 import com.cs.receipt.dto.CreateFriendRequest;
 import com.cs.receipt.dto.FriendResponse;
+import com.cs.receipt.dto.BalanceResponse;
+import com.cs.receipt.dto.SettlePersonResponse;
+import com.cs.receipt.service.BalanceService;
 
 import com.cs.receipt.service.FriendService;
 import jakarta.validation.Valid;
@@ -13,14 +16,16 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/users")
-@Tag(name = "Users", description = "Manage the authenticated user's contacts")
+@Tag(name = "Users", description = "Manage the authenticated user's contacts, balances, and payments")
 public class UserController {
 
     private final FriendService friendService;
+    private final BalanceService balanceService;
 
-    public UserController(FriendService friendService) {
+    public UserController(FriendService friendService, BalanceService balanceService) {
 
         this.friendService = friendService;
+        this.balanceService = balanceService;
     }
 
     @PostMapping("/{userId}/friends")
@@ -41,4 +46,14 @@ public class UserController {
         friendService.removeFriend(userId, friendUserId);
     }
 
+    @GetMapping("/{userId}/balances")
+    public BalanceResponse balances(@PathVariable Long userId) {
+        return balanceService.getBalances(userId);
+    }
+
+    @PostMapping("/{userId}/balances/people/{personUserId}/settle")
+    public SettlePersonResponse settlePerson(@PathVariable Long userId,
+                                                             @PathVariable Long personUserId) {
+        return balanceService.settlePerson(userId, personUserId);
+    }
 }

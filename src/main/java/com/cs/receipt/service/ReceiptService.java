@@ -327,6 +327,20 @@ public class ReceiptService {
         return receipt;
     }
 
+    /** Reverses all recorded participant payments without changing the receipt split. */
+    @Transactional
+    public Receipt unsettleReceipt(Long receiptId, Long ownerId) {
+        Receipt receipt = findOwned(receiptId, ownerId);
+        if (receipt.getStatus() == ReceiptStatus.DRAFT) {
+            throw new IllegalArgumentException("Draft receipts cannot be unsettled");
+        }
+        receipt.getParticipants().forEach(p -> p.setSettled(
+                p.getUser().getId().equals(ownerId) || p.getFinalOwedAmount().signum() == 0));
+        receipt.setStatus(ReceiptStatus.FINALIZED);
+        updateSettlementStatus(receipt);
+        return receipt;
+    }
+
     @Transactional
     public void deleteReceiptItem(Long receiptId, Long itemId, Long ownerId) {
         Receipt receipt = findOwnedDraft(receiptId, ownerId);
@@ -405,6 +419,9 @@ public class ReceiptService {
     public Receipt finalizeReceipt(Long receiptId, Long ownerId) {
         Receipt receipt = calculateSplit(receiptId, ownerId);
         receipt.setStatus(ReceiptStatus.FINALIZED);
+        receipt.getParticipants().forEach(p -> p.setSettled(p.getUser().getId().equals(ownerId)
+                || p.getFinalOwedAmount().signum() == 0));
+        updateSettlementStatus(receipt);
         return receipt;
     }
 
@@ -415,18 +432,21 @@ public class ReceiptService {
         if (receipt.getStatus() != ReceiptStatus.FINALIZED) {
             throw new IllegalArgumentException("Only finalized receipts can be reopened");
         }
+        rejectPartialSettlement(receipt);
+        receipt.getParticipants().forEach(p -> p.setSettled(false));
         receipt.setStatus(ReceiptStatus.DRAFT);
         return receipt;
     }
 
-    /** Marks a finalized receipt as paid. Settled receipts cannot be reopened or edited. */
+    /** Marks a finalized receipt as paid. Unsettle recorded payments before reopening or editing. */
     @Transactional
     public Receipt settleReceipt(Long receiptId, Long ownerId) {
         Receipt receipt = findOwned(receiptId, ownerId);
         if (receipt.getStatus() != ReceiptStatus.FINALIZED) {
             throw new IllegalArgumentException("Only finalized receipts can be settled");
         }
-        receipt.setStatus(ReceiptStatus.SETTLED);
+        receipt.getParticipants().forEach(p -> p.setSettled(true));
+        updateSettlementStatus(receipt);
         return receipt;
     }
 
@@ -436,7 +456,33 @@ public class ReceiptService {
         if (receipt.getStatus() == ReceiptStatus.SETTLED) {
             throw new IllegalArgumentException("Settled receipts cannot be deleted");
         }
+        rejectPartialSettlement(receipt);
         receiptRepository.delete(receipt);
+    }
+
+    @Transactional
+    public Receipt settleParticipant(Long receiptId, Long participantId, Long ownerId) {
+        Receipt receipt = findOwned(receiptId, ownerId);
+        if (receipt.getStatus() == ReceiptStatus.DRAFT) {
+            throw new IllegalArgumentException("Draft receipts cannot be settled");
+        }
+        findParticipant(receipt, participantId).setSettled(true);
+        updateSettlementStatus(receipt);
+        return receipt;
+    }
+
+    static void updateSettlementStatus(Receipt receipt) {
+        if (receipt.getParticipants().stream().allMatch(ReceiptParticipant::isSettled)) {
+            receipt.setStatus(ReceiptStatus.SETTLED);
+        }
+    }
+
+    private void rejectPartialSettlement(Receipt receipt) {
+        if (receipt.getParticipants().stream().anyMatch(p -> p.isSettled()
+                && !p.getUser().getId().equals(receipt.getOwner().getId())
+                && p.getFinalOwedAmount().signum() > 0)) {
+            throw new IllegalArgumentException("Receipts with settled payments cannot be reopened or deleted");
+        }
     }
 
     private ReceiptItem findItem(Receipt receipt, Long itemId) {
@@ -572,7 +618,7 @@ public class ReceiptService {
     }
 
     private Receipt findOwned(Long receiptId, Long ownerId) {
-        Receipt receipt = receiptRepository.findById(receiptId)
+        Receipt receipt = receiptRepository.findLockedById(receiptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Receipt not found"));
         if (!receipt.getOwner().getId().equals(ownerId)) {
             throw new ForbiddenOperationException("Only the receipt owner can modify this receipt");

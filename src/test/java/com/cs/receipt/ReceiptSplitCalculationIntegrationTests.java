@@ -440,12 +440,17 @@ class ReceiptSplitCalculationIntegrationTests {
     @Test
     void removingParticipantRevokesViewAndListAccess() {
         TwoParticipantReceipt split = twoParticipantReceipt("revoked-access", new BigDecimal("10.00"));
-        receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
-                split.ownerParticipantId(), AllocationType.EXACT, new BigDecimal("10.00"));
+        addExactSplit(split);
         receiptService.finalizeReceipt(split.receiptId(), split.ownerId());
         assertThat(receiptService.getReceipt(split.receiptId(), split.friendUserId()).id())
                 .isEqualTo(split.receiptId());
         receiptService.reopenReceipt(split.receiptId(), split.ownerId());
+        ReceiptResponse reopened = receiptService.getReceipt(split.receiptId(), split.ownerId());
+        for (var allocation : reopened.items().getFirst().allocations()) {
+            receiptService.deleteItemAllocation(split.receiptId(), split.itemId(), allocation.id(), split.ownerId());
+        }
+        receiptService.addItemAllocation(split.receiptId(), split.itemId(), split.ownerId(),
+                split.ownerParticipantId(), AllocationType.EXACT, new BigDecimal("10.00"));
         receiptService.removeParticipant(split.receiptId(), split.friendParticipantId(), split.ownerId());
         receiptService.finalizeReceipt(split.receiptId(), split.ownerId());
         assertThatThrownBy(() -> receiptService.getReceipt(split.receiptId(), split.friendUserId()))
@@ -506,7 +511,7 @@ class ReceiptSplitCalculationIntegrationTests {
                 .isInstanceOf(ForbiddenOperationException.class);
         assertThatThrownBy(() -> receiptService.settleReceipt(id, viewer))
                 .isInstanceOf(ForbiddenOperationException.class);
-        assertThat(receiptService.getReceipt(id, viewer).status()).isEqualTo("FINALIZED");
+        assertThat(receiptService.getReceipt(id, viewer).status()).isEqualTo("SETTLED");
     }
 
     private TwoParticipantReceipt twoParticipantReceipt(String suffix, BigDecimal itemTotal) {

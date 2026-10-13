@@ -7,6 +7,14 @@ import java.util.List;
 
 public interface ReceiptRepository extends JpaRepository<Receipt, Long> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select r from Receipt r where r.id = :id")
+    java.util.Optional<Receipt> findLockedById(@org.springframework.data.repository.query.Param("id") Long id);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select r from Receipt r where r.owner.id = :ownerId and r.status = com.cs.receipt.model.ReceiptStatus.FINALIZED order by r.id")
+    List<Receipt> findLockedOutstandingByOwner(@org.springframework.data.repository.query.Param("ownerId") Long ownerId);
+
     @org.springframework.data.jpa.repository.Query("""
             select distinct r from Receipt r left join r.participants p
             where r.owner.id = :userId

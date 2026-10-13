@@ -19,6 +19,11 @@ public class ReceiptParticipant {
     @Column(precision = 19, scale = 2, nullable = false)
     private BigDecimal finalOwedAmount = BigDecimal.ZERO;
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean settled;
+    public boolean isSettled() { return settled; }
+    public void setSettled(boolean value) { settled = value; }
+
     public Long getId() { return id; }
     public Receipt getReceipt() { return receipt; }
     public void setReceipt(Receipt receipt) { this.receipt = receipt; }
