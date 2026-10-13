@@ -2,6 +2,8 @@ package com.cs.receipt;
 
 import com.cs.receipt.dto.CreateFriendRequest;
 import com.cs.receipt.dto.FriendResponse;
+import com.cs.receipt.exception.ConflictException;
+import com.cs.receipt.exception.ResourceNotFoundException;
 import com.cs.receipt.model.Receipt;
 import com.cs.receipt.model.ReceiptItem;
 import com.cs.receipt.model.User;
@@ -64,20 +66,22 @@ class FriendSystemIntegrationTests {
         assertThat(linked.userId()).isEqualTo(target.getId());
         assertThat(linked.displayName()).isEqualTo(target.getDisplayName());
         assertThatThrownBy(() -> friendService.addFriend(owner.getId(), byUsername))
-                .isInstanceOf(com.cs.receipt.exception.ConflictException.class);
+                .isInstanceOf(ConflictException.class);
         friendService.removeFriend(owner.getId(), target.getId());
         CreateFriendRequest byEmail = friendRequest(null, "  LOOKUP-TARGET@EXAMPLE.COM  ");
         assertThat(friendService.addFriend(owner.getId(), byEmail).userId()).isEqualTo(target.getId());
-        CreateFriendRequest self = new CreateFriendRequest(); self.setUsername("lookup-owner");
+        CreateFriendRequest self = new CreateFriendRequest();
+        self.setUsername("lookup-owner");
         assertThatThrownBy(() -> friendService.addFriend(owner.getId(), self)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void rejectsMissingUsernameAndAmbiguousIdentifiersWithoutCreatingPeople() {
         User owner = userService.createUser(user("lookup-invalid-owner", "lookup-invalid@example.com"));
-        CreateFriendRequest missing = new CreateFriendRequest(); missing.setUsername("no-such-username");
+        CreateFriendRequest missing = new CreateFriendRequest();
+        missing.setUsername("no-such-username");
         assertThatThrownBy(() -> friendService.addFriend(owner.getId(), missing))
-                .isInstanceOf(com.cs.receipt.exception.ResourceNotFoundException.class);
+                .isInstanceOf(ResourceNotFoundException.class);
         missing.setEmail("someone@example.com");
         assertThatThrownBy(() -> friendService.addFriend(owner.getId(), missing)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> friendService.addFriend(owner.getId(), new CreateFriendRequest()))
