@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 class FriendSystemIntegrationTests {
@@ -51,6 +52,39 @@ class FriendSystemIntegrationTests {
         friendService.removeFriend(owner.getId(), placeholder.userId());
         assertThat(friendService.listFriends(owner.getId())).extracting(FriendResponse::userId)
                 .containsExactly(invited.userId());
+    }
+
+    @Test
+    void addsExistingAccountsByUsernameOrEmailWithoutDisplayName() {
+        User owner = userService.createUser(user("lookup-owner", "lookup-owner@example.com"));
+        User target = userService.createUser(user("lookup-target", "lookup-target@example.com"));
+        CreateFriendRequest byUsername = new CreateFriendRequest();
+        byUsername.setUsername("  LOOKUP-TARGET  ");
+        FriendResponse linked = friendService.addFriend(owner.getId(), byUsername);
+        assertThat(linked.userId()).isEqualTo(target.getId());
+        assertThat(linked.displayName()).isEqualTo(target.getDisplayName());
+        assertThatThrownBy(() -> friendService.addFriend(owner.getId(), byUsername))
+                .isInstanceOf(com.cs.receipt.exception.ConflictException.class);
+        friendService.removeFriend(owner.getId(), target.getId());
+        CreateFriendRequest byEmail = friendRequest(null, "  LOOKUP-TARGET@EXAMPLE.COM  ");
+        assertThat(friendService.addFriend(owner.getId(), byEmail).userId()).isEqualTo(target.getId());
+        CreateFriendRequest self = new CreateFriendRequest(); self.setUsername("lookup-owner");
+        assertThatThrownBy(() -> friendService.addFriend(owner.getId(), self)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsMissingUsernameAndAmbiguousIdentifiersWithoutCreatingPeople() {
+        User owner = userService.createUser(user("lookup-invalid-owner", "lookup-invalid@example.com"));
+        CreateFriendRequest missing = new CreateFriendRequest(); missing.setUsername("no-such-username");
+        assertThatThrownBy(() -> friendService.addFriend(owner.getId(), missing))
+                .isInstanceOf(com.cs.receipt.exception.ResourceNotFoundException.class);
+        missing.setEmail("someone@example.com");
+        assertThatThrownBy(() -> friendService.addFriend(owner.getId(), missing)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> friendService.addFriend(owner.getId(), new CreateFriendRequest()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> friendService.addFriend(owner.getId(), friendRequest(null, "unknown@example.com")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(friendService.listFriends(owner.getId())).isEmpty();
     }
 
     private User user(String username, String email) {

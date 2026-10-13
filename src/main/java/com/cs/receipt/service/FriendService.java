@@ -12,6 +12,7 @@ import com.cs.receipt.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -27,11 +28,21 @@ public class FriendService {
     @Transactional
     public FriendResponse addFriend(Long userId, CreateFriendRequest request) {
         User user = findUser(userId);
-        String email = request.getEmail() == null || request.getEmail().isBlank()
-                ? null : request.getEmail().trim().toLowerCase();
-        User friend = email == null
-                ? createPlaceholder(request.getDisplayName())
-                : userRepository.findByEmail(email).orElseGet(() -> createInvitedFriend(request.getDisplayName(), email));
+        String email = normalized(request.getEmail());
+        String username = normalized(request.getUsername());
+        if (email != null && username != null) {
+            throw new IllegalArgumentException("Provide either username or email, not both");
+        }
+        User friend;
+        if (username != null) {
+            friend = userRepository.findByUsernameIgnoreCase(username)
+                    .orElseThrow(() -> new ResourceNotFoundException("User with that username not found"));
+        } else if (email != null) {
+            friend = userRepository.findByEmailIgnoreCase(email)
+                    .orElseGet(() -> createInvitedFriend(requiredDisplayName(request), email));
+        } else {
+            friend = createPlaceholder(requiredDisplayName(request));
+        }
 
         if (friend.getId().equals(user.getId())) {
             throw new IllegalArgumentException("You cannot add yourself as a friend");
@@ -60,6 +71,17 @@ public class FriendService {
         UserFriend friendship = userFriendRepository.findByUserIdAndFriendId(userId, friendUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("Friend not found in your friend list"));
         userFriendRepository.delete(friendship);
+    }
+
+    private String normalized(String value) {
+        return value == null || value.isBlank() ? null : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String requiredDisplayName(CreateFriendRequest request) {
+        if (request.getDisplayName() == null || request.getDisplayName().isBlank()) {
+            throw new IllegalArgumentException("Friend name is required to create a new person");
+        }
+        return request.getDisplayName().trim();
     }
 
     private User findUser(Long userId) {
