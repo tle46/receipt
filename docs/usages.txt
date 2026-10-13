@@ -1,0 +1,18 @@
+Drop local schema:
+
+psql -U postgres -d receiptapp
+
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+
+
+Running
+.\gradlew.bat bootRun
+
+
+Test
+./gradlew test
+./gradlew test --tests ReceiptSplitCalculationIntegrationTests
+
+Swagger
+http://localhost:8080/swagger-ui/index.html

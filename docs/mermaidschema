@@ -1,0 +1,123 @@
+erDiagram
+    %% Entity labels map to JPA tables listed below; this is documentation, not SQL.
+    %% USER=users; USER_FRIEND=user_friends; RECEIPT=receipts;
+    %% RECEIPT_ITEM=receipt_items; RECEIPT_PARTICIPANT=receipt_participants;
+    %% RECEIPT_ITEM_ALLOCATION=receipt_item_allocations;
+    %% RECEIPT_ADJUSTMENT_ALLOCATION=receipt_adjustment_allocations;
+    %% AUTH_SESSION=auth_session; ACCOUNT_TOKEN=account_token.
+    %% Relationships show database nullability; the service requires at least one
+    %% item per receipt and automatically adds the owner as a participant.
+    %% Protected requests use JWT authentication; actor userId must match the token subject.
+    %% Participants can view FINALIZED/SETTLED receipts; only owners can view drafts.
+    %% Balances/offsets are computed per currency from unpaid finalized shares, not stored.
+    %% Username/email contact lookup reuses users and directional user_friends links.
+    %% Viewing requires ownership or participant membership; existing-receipt writes require ownership.
+    %% mermaid.live
+
+    USER {
+        bigint id PK
+        string username UK "not null"
+        string email UK "nullable"
+        string display_name "not null"
+        string status "ACTIVE, GUEST, DISABLED, INVITED, PLACEHOLDER; length 20; not null"
+        datetime created_at "not null"
+        string password_hash "nullable"
+        string google_subject UK "nullable"
+        boolean email_verified "not null; database default false"
+    }
+
+    %% UNIQUE (user_id, friend_id); friendships are directional.
+    USER_FRIEND {
+        bigint id PK
+        bigint user_id FK "not null"
+        bigint friend_id FK "not null"
+        datetime created_at "not null"
+    }
+
+    RECEIPT {
+        bigint id PK
+        bigint owner_id FK "not null"
+        string merchant_name "nullable"
+        datetime purchase_date "nullable"
+        decimal subtotal "precision 19, scale 2; not null"
+        decimal discount "precision 19, scale 2; not null"
+        decimal tax "precision 19, scale 2; not null"
+        decimal fee "precision 19, scale 2; not null"
+        decimal tip "precision 19, scale 2; not null"
+        decimal total "precision 19, scale 2; not null"
+        string currency "length 3; not null"
+        string status "DRAFT, FINALIZED, SETTLED; not null"
+    }
+
+    RECEIPT_ITEM {
+        bigint id PK
+        bigint receipt_id FK "nullable in JPA mapping"
+        string name "nullable"
+        decimal quantity "provider default precision and scale; nullable"
+        decimal unit_price "precision 19, scale 2; not null"
+        decimal total "precision 19, scale 2; not null"
+    }
+
+    %% UNIQUE (receipt_id, user_id).
+    RECEIPT_PARTICIPANT {
+        bigint id PK
+        bigint receipt_id FK "not null"
+        bigint user_id FK "not null"
+        decimal final_owed_amount "precision 19, scale 2; not null"
+        boolean settled "not null; database default false"
+    }
+
+    %% UNIQUE (receipt_item_id, participant_id).
+    RECEIPT_ITEM_ALLOCATION {
+        bigint id PK
+        bigint receipt_item_id FK "not null"
+        bigint participant_id FK "not null"
+        string allocation_type "EXACT, EQUAL, PERCENTAGE, SHARES; not null"
+        decimal input_value "precision 19, scale 4; not null"
+        decimal final_amount "precision 19, scale 2; not null"
+    }
+
+    %% UNIQUE (receipt_id, adjustment_type, participant_id).
+    RECEIPT_ADJUSTMENT_ALLOCATION {
+        bigint id PK
+        bigint receipt_id FK "not null"
+        bigint participant_id FK "not null"
+        string adjustment_type "TAX, FEE, TIP; not null"
+        decimal amount "precision 19, scale 2; not null"
+    }
+
+    %% Authentication entities store scalar user IDs, not JPA associations.
+    %% The auth SQL migration adds foreign keys; Hibernate-only creation does not.
+    AUTH_SESSION {
+        string id PK "not null"
+        bigint user_id "not null; logical user reference"
+        string refresh_hash UK "not null"
+        datetime expires_at "Instant; not null"
+        boolean revoked "not null"
+        bigint version "not null; optimistic locking"
+    }
+
+    ACCOUNT_TOKEN {
+        string hash PK "not null"
+        bigint user_id "nullable; logical user reference"
+        string purpose "nullable"
+        string email "nullable"
+        datetime expires_at "Instant; nullable"
+    }
+
+    %% Settlement is per participant; all settled means receipt SETTLED.
+    %% Owner/zero shares are settled on finalization; unsettle resets external debts.
+    %% Names in receipt responses come from users, not duplicate participant columns.
+    %% These two relationships are logical; SQL migration enforces their foreign keys.
+    USER ||..o{ AUTH_SESSION : "has sessions"
+    USER o|..o{ ACCOUNT_TOKEN : "has account tokens"
+    USER ||--o{ RECEIPT : "owns"
+    USER ||--o{ USER_FRIEND : "maintains contact links"
+    USER ||--o{ USER_FRIEND : "is linked as friend"
+    RECEIPT o|--o{ RECEIPT_ITEM : "contains"
+    RECEIPT ||--o{ RECEIPT_PARTICIPANT : "is split among"
+    USER ||--o{ RECEIPT_PARTICIPANT : "participates in"
+    RECEIPT_ITEM ||--o{ RECEIPT_ITEM_ALLOCATION : "has"
+    RECEIPT_PARTICIPANT ||--o{ RECEIPT_ITEM_ALLOCATION : "receives"
+    RECEIPT ||--o{ RECEIPT_ADJUSTMENT_ALLOCATION : "has charge overrides"
+    RECEIPT_PARTICIPANT ||--o{ RECEIPT_ADJUSTMENT_ALLOCATION : "receives charge overrides"
