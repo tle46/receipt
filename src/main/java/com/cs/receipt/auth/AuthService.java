@@ -62,7 +62,7 @@ public class AuthService {
     public Credentials register(AuthRequests.Register request, Long guestId) {
         String username=request.username().toLowerCase(Locale.ROOT), email=request.email().trim().toLowerCase(Locale.ROOT);
         if (users.findByUsernameIgnoreCase(username).isPresent() || users.existsByEmail(email))
-            throw new ConflictException("Username or email is unavailable; sign in to an existing account instead");
+            throw new ConflictException("Username or email is unavailable");
         User u = guestId == null ? newUser(UserStatus.GUEST) : user(guestId);
         if (u.getStatus()!=UserStatus.GUEST) throw new ConflictException("Account is already registered");
         u.setUsername(username); u.setEmail(email); u.setDisplayName(request.displayName().trim());
